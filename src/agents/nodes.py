@@ -762,6 +762,7 @@ def assembler_node(state: dict) -> dict:
     new_drafts = {d["chapter_index"]: d for d in per_chapter}
 
     parts = []
+    carry_over = []  # Chapters reused from old draft — add to per_chapter_drafts
     if post_title:
         parts.append(f"# {post_title}\n")
     for i, ch in enumerate(chapters):
@@ -770,16 +771,23 @@ def assembler_node(state: dict) -> dict:
         else:
             # Retry skipped this chapter — reuse from old assembled draft
             fallback = _extract_chapter_draft(old_assembled, ch.get("title", ""))
-            parts.append(fallback if fallback else f"## {ch.get('title', '')}\n\n(内容缺失)")
+            content = fallback if fallback else f"## {ch.get('title', '')}\n\n(内容缺失)"
+            parts.append(content)
+            carry_over.append({
+                "chapter_index": i,
+                "chapter_title": ch.get("title", f"Ch{i+1}"),
+                "draft_content": content,
+            })
         parts.append("")
 
     assembled = "\n".join(parts).strip()
 
     retries = state.get("writer_retry_count", 0)
-    # Keep per_chapter_drafts so Tier1/Reviewer can read by index (not title match)
+    # Keep complete per_chapter_drafts (new + carry-over) for Tier1/Reviewer
     return {
         "assembled_draft": assembled,
         "draft": assembled,
+        "per_chapter_drafts": per_chapter + carry_over,
         "writer_retry_count": retries,
         "stage": "writer_done",
     }
