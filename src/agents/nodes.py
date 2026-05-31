@@ -1138,7 +1138,7 @@ reviewer_single_chapter_node: callable = None  # Forward decl, defined below
 def _make_reviewer_single_chapter():
     """Factory: build the per-chapter checklist-based reviewer."""
     def _review(state: dict) -> dict:
-        llm = get_llm(temperature=0.2)
+        llm = get_fast_llm(temperature=0.2)
         tools = []  # Reviewer uses checklist, no external tools needed
         profile = state.get("user_needs", {})
 

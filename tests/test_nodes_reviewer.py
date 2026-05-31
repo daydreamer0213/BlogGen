@@ -152,7 +152,7 @@ class TestReviewerSingleChapterNode:
 
     def test_reviewer_pass(self):
         state = self.setup_state()
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(PASS_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             result = reviewer_single_chapter_node(state)
             assert "per_chapter_reviews" in result
             reviews = result["per_chapter_reviews"]
@@ -167,7 +167,7 @@ class TestReviewerSingleChapterNode:
         """
         state = self.setup_state()
         state["chapter_plan"]["chapters"][0]["key_points"].append("NOT_IN_CONTENT")
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(PASS_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             result = reviewer_single_chapter_node(state)
             review = result["per_chapter_reviews"][0]["review"]
             # LLM says pass → accept, even if code found minor mismatches
@@ -179,7 +179,7 @@ class TestReviewerSingleChapterNode:
         """When chapter draft can't be extracted from assembled."""
         state = self.setup_state()
         state["assembled_draft"] = ""
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(PASS_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             result = reviewer_single_chapter_node(state)
             assert len(result["per_chapter_reviews"]) == 1
 
@@ -298,10 +298,10 @@ class TestReviewerAssemblerPipeline:
         }
 
         # Chapter 0 review
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(PASS_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             r0 = reviewer_single_chapter_node({**state, "_review_chapter_index": 0})
         # Chapter 1 review
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(PASS_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             r1 = reviewer_single_chapter_node({**state, "_review_chapter_index": 1})
         # Structure review (uses get_fast_llm after Flash migration)
         with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm("判断：通过\n总评：好\n")):
@@ -328,9 +328,9 @@ class TestReviewerAssemblerPipeline:
             "user_needs": {"level": "beginner", "style": "balanced"},
         }
 
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(PASS_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             r0 = reviewer_single_chapter_node({**state, "_review_chapter_index": 0})
-        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(REJECT_REVIEW)):
+        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(REJECT_REVIEW)):
             r1 = reviewer_single_chapter_node({**state, "_review_chapter_index": 1})
         with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm("判断：通过\n总评：好\n")):
             sr = structure_reviewer_node(state)
