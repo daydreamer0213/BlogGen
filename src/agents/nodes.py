@@ -518,15 +518,25 @@ def chapter_planner_node(state: dict) -> dict:
 
     topics_text = "\n".join(f"- {t}" for t in all_topics)
 
+    # Build chapter limit based on learner level
+    rule = DEPTH_RULES.get(profile.get("level", "beginner"), DEPTH_RULES["beginner"])
+    max_chapters = rule.get("max_chapters", 8)
+    chapter_limit = (
+        f"用户是{rule['label']}水平。整篇博客最多 {max_chapters} 章。"
+        f"当前有 {len(all_topics)} 个知识点，请合并相近主题，"
+        f"保留最核心的 {max_chapters * 2} 到 {max_chapters * 3} 个知识点，其余舍弃。"
+    )
+    system_prompt = CHAPTER_PLANNER_PROMPT.replace("{chapter_limit}", chapter_limit)
+
     user_prompt = (
         f"## 学习领域：{domain}\n"
         f"用户水平：{profile.get('level', 'beginner')}\n\n"
         f"## 全部知识点（共{len(all_topics)}个）\n{topics_text}\n\n"
         f"将以上全部知识点按内容关联度分组为章节。关联紧密的放同一章，"
-        f"在语义分界处换章。每章2-5个知识点。"
+        f"在语义分界处换章。每章2-3个知识点。最多{max_chapters}章。"
     )
 
-    resp_text = _run_with_tools(llm, CHAPTER_PLANNER_PROMPT, user_prompt, tools, agent_name="chapter_planner")
+    resp_text = _run_with_tools(llm, system_prompt, user_prompt, tools, agent_name="chapter_planner")
     plan = _parse_chapter_markdown(resp_text)
     plan = validate_or_raise(ChapterPlan, plan, "ChapterPlanner")
     chapters = plan.get("chapters", [])

@@ -88,6 +88,7 @@ DEPTH_RULES = {
             "注重'是什么'和'怎么用'。每章至少一个简短伪代码示例（≤30行）+ 运行结果。"
         ),
         "max_words_per_chapter": 1800,
+        "max_chapters": 6,
         "code_required": True,
     },
     "intermediate": {
@@ -99,6 +100,7 @@ DEPTH_RULES = {
             "拓展题为开放式设计题，鼓励读者自己探索。"
         ),
         "max_words_per_chapter": 2000,
+        "max_chapters": 8,
         "code_required": True,
     },
     "advanced": {
@@ -109,6 +111,7 @@ DEPTH_RULES = {
             "性能benchmark对比。拓展题为研究性问题。"
         ),
         "max_words_per_chapter": 2000,
+        "max_chapters": 10,
         "code_required": False,
     },
 }

@@ -16,8 +16,8 @@ print("BlogGen Headless Pipeline Test", flush=True)
 print(f"      Timeout: {args.timeout}s", flush=True)
 print("=" * 60, flush=True)
 
-# Record start time for log filtering
-RUN_START = time.strftime("%Y-%m-%dT%H:%M")
+# Record start timestamp for precise log filtering
+RUN_START_ISO = time.strftime("%Y-%m-%dT%H:%M")
 
 # Init
 print("[1/4] Loading session...", flush=True)
@@ -25,6 +25,9 @@ from src.graph.session import BlogGenSession
 s = BlogGenSession(interrupt_after=[])
 s.create()
 print(f"      thread={s.thread_id}", flush=True)
+
+# Capture exact moment after session creation for log filtering
+RUN_T0 = time.time()
 
 # Input
 user = "我想学RAG，我是初学者，学到能够通过AI应用开发面试的程度"
@@ -108,10 +111,10 @@ print(final[:1500])
 print(f"\n... ({len(final)} total chars)")
 print(f"{'='*60}")
 
-# Show log entries
+# Show log entries from this thread
 print(f"\n{'='*80}")
-print(f"Logs from this run:")
-print(f"{'Time':<20} {'Agent':<30} {'Latency':>8} {'TokIn':>7} {'TokOut':>7} {'Model':<22}")
+print(f"Logs from this run (thread={s.thread_id[:8]}...):")
+print(f"{'Time':<20} {'Agent':<25} {'Latency':>7} {'TokIn':>6} {'TokOut':>6} {'Model':<22}")
 print("-" * 80)
 entries = []
 with open("data/logs.jsonl", "r", encoding="utf-8") as f:
@@ -119,8 +122,10 @@ with open("data/logs.jsonl", "r", encoding="utf-8") as f:
         if line.strip():
             e = json.loads(line)
             t = e.get("timestamp", "")
-            if RUN_START in t:
+            if RUN_START_ISO in t:
                 entries.append(e)
+if not entries:
+    print("  (no log entries found — check RUN_START_ISO filter)")
 for e in entries:
     ts = e["timestamp"][:19].replace("T", " ")
     agent = e["agent"][:30]
