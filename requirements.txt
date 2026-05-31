@@ -1,0 +1,22 @@
+# Core
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langgraph>=0.2.0
+
+# RAG
+sentence-transformers>=3.0.0
+chromadb>=0.5.0
+rank-bm25>=0.2.0
+jieba>=0.42.0
+
+# Web
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# UI
+streamlit>=1.35.0
+
+# Config
+python-dotenv>=1.0.0
+
+# Checkpointer — sqlite3 is stdlib, no install needed

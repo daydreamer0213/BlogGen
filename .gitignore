@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+data/
+outputs/
+.idea/
+.streamlit/
+*.egg-info/
+dist/
+run_output.txt
+gstack/
+superpowers/
