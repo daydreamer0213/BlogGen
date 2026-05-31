@@ -55,7 +55,10 @@ pytest tests/ -m "not integration" -v
 - **JSON extraction:** LLM outputs JSON in markdown fences → `safe_extract_json()` with regex fallback
 - **Config:** All env vars validated at import time via `_require()`, placeholder detection
 - **Word budget:** beginner=1800字/chapter, intermediate=2000字/chapter. 每章聚焦2-3个核心知识点
+- **Chapter limit:** 章节数有硬上限（beginner≤6, intermediate≤8, advanced≤10），Planner 需舍弃非核心知识点
 - **Tier1 retry:** 纯字数驳回不传原文（防 prompt 膨胀），内容问题才带原文定位
+- **Review retry:** 重试时复用上次结构审查结果，只重新逐章审查
+- **KnowledgeTree:** 首次解析到知识点即跳过格式重试（有效内容优先）
 
 ## Workflow preferences (superpowers)
 
