@@ -611,19 +611,40 @@ def writer_single_chapter_node(state: dict) -> dict:
         issues_text = json.dumps(ch_issues, ensure_ascii=False, indent=2)
 
         if reject_level == "tier1":
-            user_prompt = (
-                f"## 章节：{chapter_title}\n"
-                f"## 需要覆盖的知识点\n" + "\n".join(f"- {kp}" for kp in key_points) + "\n\n"
-                f"## 字数约束：{word_budget}\n\n"
-                f"## 原文\n{original}\n\n"
-                f"## 代码检查发现问题（只修这些问题，其余原文照搬）\n{issues_text}\n\n"
-                f"## 用户水平：{profile.get('level', 'beginner')}\n\n"
-                f"修改规则：\n"
-                f"1. 缺失的知识点 → 在合适位置插入简短讲解\n"
-                f"2. 代码块超过30行 → 精简伪代码，移除样板\n"
-                f"3. 字数超标 → 删减冗余内容，保留核心\n"
-                f"4. 其他段落逐字保留原文，不要改动。输出完整章节。"
-            )
+            # Classify issues: word-count-only vs content issues (topic coverage, code)
+            content_issues = [i for i in ch_issues
+                           if i.get("type") not in ("字数控制",)]
+            word_only = bool(ch_issues) and not content_issues
+
+            if word_only:
+                # Pure word-count rejection: skip full original text to prevent
+                # prompt explosion in the retry loop. Only pass budget + target.
+                current_words = len(original)
+                user_prompt = (
+                    f"## 章节：{chapter_title}\n"
+                    f"## 需要覆盖的知识点\n" + "\n".join(f"- {kp}" for kp in key_points) + "\n\n"
+                    f"## 字数约束：{word_budget}\n"
+                    f"当前原文 {current_words} 字，需要精简至 {max_words} 字以内。\n\n"
+                    f"精简策略：保留核心原理讲解和关键代码示例，"
+                    f"删除冗余修饰语和重复表述。优先保留最重要的 2-3 个知识点深入讲解，"
+                    f"其余知识点可用一句简略带过或引导至其他章节。\n\n"
+                    f"## 用户水平：{profile.get('level', 'beginner')}\n\n"
+                    f"输出完整章节。"
+                )
+            else:
+                user_prompt = (
+                    f"## 章节：{chapter_title}\n"
+                    f"## 需要覆盖的知识点\n" + "\n".join(f"- {kp}" for kp in key_points) + "\n\n"
+                    f"## 字数约束：{word_budget}\n\n"
+                    f"## 原文\n{original}\n\n"
+                    f"## 代码检查发现问题（只修这些问题，其余原文照搬）\n{issues_text}\n\n"
+                    f"## 用户水平：{profile.get('level', 'beginner')}\n\n"
+                    f"修改规则：\n"
+                    f"1. 缺失的知识点 → 在合适位置插入简短讲解\n"
+                    f"2. 代码块超过30行 → 精简伪代码，移除样板\n"
+                    f"3. 字数超标 → 删减冗余内容，保留核心\n"
+                    f"4. 其他段落逐字保留原文，不要改动。输出完整章节。"
+                )
         elif reject_level == "tier2":
             user_prompt = (
                 f"## 章节：{chapter_title}\n"
