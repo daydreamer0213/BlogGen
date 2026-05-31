@@ -1,148 +1,147 @@
-# BlogGen Design Document
+# BlogGen 设计文档
 
-## System Overview
+## 系统概述
 
-BlogGen is a multi-agent collaborative blog generation system that transforms a user's learning topic into a polished, pedagogically sound technical blog post. It orchestrates 5 AI agents through a LangGraph state machine, with human-in-the-loop (HITL) checkpoints at key decision points.
+BlogGen 是一个多 Agent 协作的博客生成系统。用户输入学习话题后，5 个 AI Agent 通过 LangGraph 状态机协作生成一篇结构严谨、适合目标读者水平的技术博客。关键节点设有 HITL（人在回路）检查点，让用户在推进前确认中间产物。
 
-### Pipeline
+### 管线流程
 
 ```
-User Input → NeedsAlignment → KnowledgeTree → ChapterPlanner → Writer(fan-out) → Reviewer(fan-out)
-                 HITL ✓          HITL ✓         HITL ✓                              HITL ✓
+用户输入 → 需求对齐 → 知识树构建 → 章节规划 → 撰写(并行) → 审查(并行)
+              HITL ✓      HITL ✓       HITL ✓                  HITL ✓
 ```
 
-At each HITL checkpoint, the Streamlit UI renders the agent's output and waits for user approval before advancing to the next stage.
+每个 HITL 检查点，Streamlit 界面展示当前 Agent 的输出，等待用户确认后再继续。
 
 ---
 
-## 1. Architecture Decisions
+## 1. 架构决策
 
-### 1.1 Why LangGraph over custom orchestration
+### 1.1 为什么用 LangGraph 而不是自己写编排
 
-- **Checkpointing built-in.** MemorySaver gives us pause/resume for HITL without implementing our own state serialization.
-- **Fan-out via Send().** LangGraph 1.x `Send()` from conditional edges gives parallel chapter execution with reducer-based merge — no manual thread pools.
-- **Conditional routing.** `add_conditional_edges()` lets each node decide the next step based on state, keeping routing logic explicit.
-- **Explicit state schema.** BlogGenState TypedDict with `Annotated[list, add]` reducers makes state mutations traceable.
+- **内置检查点。** MemorySaver 提供了暂停/恢复能力，HITL 不需要自己实现状态序列化。
+- **Send() 实现并行。** LangGraph 1.x 的 `Send()` 可以从条件边派发并行章节执行，通过 reducer 合并结果——不需要手动管理线程池。
+- **条件路由显式化。** `add_conditional_edges()` 让每个节点根据状态决定下一步，路由逻辑清晰可追溯。
+- **显式状态 Schema。** BlogGenState TypedDict 配合 `Annotated[list, add]` reducer，状态变更路径一目了然。
 
-Tradeoff: LangGraph adds a dependency, but the alternative (hand-rolled state machine + threading) would be significantly more code for the same correctness guarantees.
+代价：多了一个依赖。但手写状态机+线程池的代码量远大于此，且正确性更难保证。
 
-### 1.2 Why DeepSeek as the LLM backend
+### 1.2 为什么用 DeepSeek 作为 LLM 后端
 
-- **Chinese language quality.** BGE embeddings (bge-large-zh-v1.5) and DeepSeek's native Chinese support are essential for the target audience.
-- **Two-tier model strategy.** DeepSeek V4 Pro for complex reasoning (NeedsAlignment, Reviewer), Flash for generation-heavy tasks (Writer). Flash is ~12x cheaper with only 1.9 point quality gap on long-form writing.
-- **OpenAI-compatible API.** ChatOpenAI client works without vendor-specific SDK.
+- **中文能力强。** BGE 中文 Embedding（bge-large-zh-v1.5）+ DeepSeek 原生中文支持，适合目标用户群。
+- **双模型策略。** 复杂推理用 V4 Pro（需求对齐、审查），大批量生成用 Flash（撰写）。Flash 成本约 Pro 的 1/12，长文生成效果尚可，当前 MVP 阶段先用 Flash，后续根据实测效果调整。
+- **兼容 OpenAI API。** ChatOpenAI 客户端直接可用，不需要厂商专用 SDK。
 
-### 1.3 Why Streamlit for UI
+### 1.3 为什么用 Streamlit
 
-- **Python-native.** No frontend build step. All agents are Python, so keeping the UI in Python avoids a language boundary.
-- **Session state model.** `st.session_state` maps cleanly to BlogGenSession lifecycle — one session per browser tab.
-- **HITL UX.** Streamlit's callback pattern (`on_click`) + `st.rerun()` gives us a responsive approval flow without WebSocket complexity.
+- **纯 Python。** 所有 Agent 都是 Python，UI 也用 Python 避免了语言边界。不需要前端构建工具链。
+- **会话状态模型。** `st.session_state` 天然映射到 BlogGenSession 的生命周期——一个浏览器标签页一个会话。
+- **HITL 体验。** Streamlit 的回调模式（`on_click`）+ `st.rerun()` 实现了响应式审批流程，不需要 WebSocket。
 
-### 1.4 Why Pydantic for data contracts
+### 1.4 为什么用 Pydantic
 
-- **Validation at boundaries.** Every inter-agent handoff (LearnerProfile, KnowledgeTree, ChapterPlan, ReviewResult) goes through `validate_or_raise()`.
-- **Fuzzy input normalization.** `normalize_level_str()` handles Chinese proficiency descriptors ("小白"→beginner, "精通"→advanced) so the LLM doesn't need to get the exact string right.
-- **Schema drift detection.** If an agent's output format changes, Pydantic raises immediately rather than propagating bad data downstream.
-
----
-
-## 2. Agent Design
-
-### 2.1 NeedsAlignment (Agent 1)
-
-**Responsibility**: Conversational requirements gathering. Extracts structured LearnerProfile from multi-turn chat.
-
-**Design rationale**:
-- The `needs_alignment` stage loops — the graph routes back to the same node until all required fields (domain, level, goal) are present.
-- This is a HITL checkpoint by design: the node interrupts after each LLM response so the user can continue chatting or approve.
-- `extract_json()` is called on every LLM response; missing fields trigger a follow-up question.
-
-**Edge case handling**:
-- Empty history → stays in needs_alignment (UI shows greeting)
-- Partial profile → LLM asks targeted follow-up question (1-2 missing fields only)
-- Fuzzy level descriptors → normalized by `normalize_level_str()`
-
-### 2.2 KnowledgeTreeBuilder (Agent 2)
-
-**Responsibility**: Research the domain and produce an ordered list of knowledge points (topics) from beginner to mastery.
-
-**Design rationale**:
-- Uses the **fast model** (Flash) — knowledge tree is structural, not creative. Speed matters more than nuance.
-- Has access to web search (`tavily_search`) and local RAG (`query_vector_store`) for research.
-- **2026 pattern**: Instead of unlimited web search, agents have a small tool call budget (typically 1 call). One search with `max_results=10` is usually sufficient.
-- Output format is deliberately simple: `# Domain\n- Topic 1\n- Topic 2`. Simple format = fewer parsing failures.
-
-**Retry logic**:
-- First attempt: standard tool-calling flow
-- Validation failure → retry with explicit format instructions
-- Retry failure → accept whatever topics were parsed (graceful degradation)
-
-### 2.3 ChapterPlanner (Agent 3)
-
-**Responsibility**: Group knowledge points into chapters, then split chapters into blog posts by word budget.
-
-**Key design decision — planner doesn't design narrative**:
-The ChapterPlanner only groups topics. Writer owns narrative structure (core questions, analogies, code examples). This separation prevents the planner from making creative decisions that constrain the writer.
-
-**Split algorithm** (`split_chapters_by_budget`):
-- Recursive binary split at chapter boundaries
-- Each post gets `max_words_per_chapter × 5` word budget
-- Merge trailing fragments <30% of budget into the previous post
-- Uses chapter boundaries as split points (natural semantic breaks)
-
-### 2.4 Writer (Agent 4)
-
-**Responsibility**: Write each chapter as standalone content. Operates in fan-out mode — one invocation per chapter via `Send()`.
-
-**Design rationale**:
-- **Flash model** for generation — DeepSeek's own evaluation shows Flash is only 1.9 points behind Pro on long-form Chinese writing, at ~12x lower cost.
-- **Per-chapter, not per-post.** Writing one chapter at a time keeps prompts focused and output manageable. The Assembler concatenates.
-- **Fix modes** depend on which review tier rejected:
-  - Tier1 (code-level): Add missing topics, trim code blocks, cut words. Preserve other content.
-  - Tier2 (structure-level): Reorder paragraphs, improve transitions. Preserve paragraph content.
-  - Tier3 (content-level): Modify only flagged paragraphs. Everything else preserved verbatim.
-- **Word budget** is repeated at the start and end of each prompt — the "primacy/recency" effect ensures it's followed.
-
-**Debug support**: Writer prompts are saved to `data/writer_prompt_debug.txt` for offline inspection.
-
-### 2.5 Reviewer (Agent 5)
-
-**Three-tier quality gate**:
-
-| Tier | Name | Cost | What it checks |
-|------|------|------|----------------|
-| Tier1 | Code-level | Free (pure Python) | Topic coverage, word count, code block size |
-| Tier2 | Per-chapter | 1 LLM call/chapter | Checklist review per chapter (5 dimensions) |
-| Tier3 | Structure | 1 LLM call | Cross-chapter structure, ordering, transitions |
-
-**Tier1 is free by design.** Topic coverage uses substring matching (`core_term in chapter_content`), word count is `len(content)`, code block lines counted via regex. These checks catch 80% of issues without burning API credits.
-
-**Tier2 fan-out**: Each chapter reviewed in parallel via `Send("review_chapter", ...)`. Reviews merged by `assemble_reviews_node`.
-
-**Design principle — fix, don't rewrite**: Each rejection includes the original chapter content in `review_feedback.chapter_contents`. The Writer's fix mode modifies only the flagged issues, preserving the rest. This prevents review-fix oscillation (Writer changing good content while fixing bad).
-
-### 2.6 Assembler (meta-node)
-
-**Responsibility**: Concatenate per-chapter drafts into a single blog post.
-
-Handles partial retry: if some chapters weren't re-written (no issues), `_extract_chapter_draft()` pulls them from the old assembled draft via regex heading matching.
+- **边界校验。** 每个 Agent 间的数据交接（LearnerProfile、KnowledgeTree、ChapterPlan、ReviewResult）都经过 `validate_or_raise()`。
+- **模糊输入规范化。** `normalize_level_str()` 能处理中文水平描述词（"小白"→beginner，"精通"→advanced），LLM 不需要输出精确字符串。
+- **Schema 漂移检测。** Agent 输出格式变化时，Pydantic 立即报错，不会把脏数据传到下游。
 
 ---
 
-## 3. State Management
+## 2. Agent 设计
+
+### 2.1 需求对齐（Agent 1）
+
+**职责**：通过多轮对话收集需求，提取结构化的 LearnerProfile。
+
+**设计理由**：
+- `needs_alignment` 阶段会循环——图谱在所需字段（domain、level、goal）齐全之前一直路由回同一节点。
+- 这是一个天然的 HITL 检查点：每次 LLM 回复后节点中断，用户可以继续聊天或确认。
+- 每次 LLM 回复都调用 `extract_json()`，缺少必填字段则触发追问。
+
+**边界处理**：
+- 空聊天记录 → 停留在 needs_alignment（UI 显示问候语）
+- 信息不完整 → LLM 定向追问（一次只问 1-2 个缺失字段）
+- 模糊水平描述 → 由 `normalize_level_str()` 规范化
+
+### 2.2 知识树构建（Agent 2）
+
+**职责**：研究学习领域，输出按学习顺序排列的知识点列表。
+
+**设计理由**：
+- 用 **Flash 模型**——知识树是结构化的，不要求创造力，速度更重要。
+- 可调用网络搜索（`tavily_search`）和本地知识库（`query_vector_store`）。
+- 输出格式刻意设计得简单：`# 领域名\n- 知识点1\n- 知识点2`。格式越简单，解析失败越少。
+
+**重试逻辑**：
+- 第一次：标准工具调用流程
+- 校验失败 → 用显式格式指令重试
+- 再次失败 → 接受已解析到的知识点（优雅降级，不阻塞管线）
+
+### 2.3 章节规划（Agent 3）
+
+**职责**：将知识点归组为章节，再按字数预算拆分为一篇或多篇博客。
+
+**关键设计决策——规划师不编叙事**：
+ChapterPlanner 只管分组。叙事结构（核心问题、类比、代码示例）全部交给 Writer。这个分离避免了规划师替写作者做创意决策，导致输出千篇一律。
+
+**拆分算法**（`split_chapters_by_budget`）：
+- 在章节边界处递归二分
+- 每篇预算 = `每章最大字数 × 5`
+- 末尾碎片（<30% 预算）合并到前一篇
+- 以章节边界为切分点（自然的语义断点）
+
+### 2.4 撰写（Agent 4）
+
+**职责**：独立撰写每个章节。以并行 fan-out 模式运行——通过 `Send()` 为每章触发一次调用。
+
+**设计理由**：
+- 当前 MVP 阶段用 **Flash 模型**生成。代码注释中提到的"1.9 分质量差距"来自 DeepSeek 官方评测，本项目未做独立验证。后续调优阶段会对比 Pro 和 Flash 的实际输出质量，再决定是否切换。
+- **逐章撰写，不是整篇。** 一次写一章，prompt 聚焦、输出可控。最后由 Assembler 拼接。
+- **修改模式**按审查等级区分：
+  - Tier1（代码级）：补缺失知识点、精简代码块、删减字数。其余保留。
+  - Tier2（结构级）：调整段落顺序、改善过渡衔接。段落内容保留。
+  - Tier3（内容级）：只修改被标注的段落。其余逐字保留。
+- **字数约束**在 prompt 首尾各强调一次——利用首因/近因效应提高遵从率。
+
+**除错支持**：Writer 的 prompt 会保存到 `data/writer_prompt_debug.txt` 供线下排查。
+
+### 2.5 审查（Agent 5）
+
+**三级质量门**：
+
+| 级别 | 名称 | 成本 | 检查内容 |
+|------|------|------|----------|
+| Tier1 | 代码级检查 | 免费（纯 Python） | 知识点覆盖、字数、代码块行数 |
+| Tier2 | 逐章审查 | 每章 1 次 LLM 调用 | 按清单逐项审查（5 个维度） |
+| Tier3 | 结构审查 | 1 次 LLM 调用 | 跨章节结构、编排顺序、过渡 |
+
+**Tier1 的设计意图**：在触发付费 LLM 审查之前，先用代码规则做一轮粗筛。知识点覆盖用子串匹配（`core_term in chapter_content`），字数统计算 `len(content)`，代码块行数用正则统计。这些规则能拦截明显有结构缺失的文章（如整章为空、代码块过长），但无法判断语义层面的完整性。实际拦截率和误报率目前未做评估，后续根据线上数据迭代规则。
+
+**Tier2 并行执行**：通过 `Send("review_chapter", ...)` 并行审查所有章节。结果由 `assemble_reviews_node` 合并。
+
+**核心原则——只修不改**：每次驳回时，`review_feedback.chapter_contents` 中包含原文。Writer 的修改模式只修复被标注的问题，保留已通过审查的内容。这防止了"改好了 A 又写坏了 B"的振荡。
+
+### 2.6 组装器（元节点）
+
+**职责**：将逐章草稿拼接为一篇完整博客。
+
+处理部分重试场景：如果某些章节没有重新撰写（无问题），通过 `_extract_chapter_draft()` 用正则标题匹配从旧稿中提取。
+
+---
+
+## 3. 状态管理
 
 ### BlogGenState Schema
 
 ```python
 class BlogGenState(TypedDict):
-    messages: Annotated[list, add_messages]        # Chat history (NeedsAlignment)
+    messages: Annotated[list, add_messages]        # 聊天历史
     user_needs: dict                                # LearnerProfile
     knowledge_tree: dict                            # {domain, topics[]}
     chapter_plan: dict                              # {post_title, chapters[]}
-    posts: list[dict]                               # Split plan [{title, chapter_indices}]
+    posts: list[dict]                               # 拆分计划
     current_post_index: int
-    per_chapter_drafts: Annotated[list[dict], add]  # Fan-out accumulator
-    per_chapter_reviews: Annotated[list[dict], add] # Fan-out accumulator
+    per_chapter_drafts: Annotated[list[dict], add]  # 并行撰写合并
+    per_chapter_reviews: Annotated[list[dict], add] # 并行审查合并
     assembled_draft: str
     tier1_pass: bool
     draft: str
@@ -152,8 +151,8 @@ class BlogGenState(TypedDict):
     reject_level: str                               # "tier1"|"tier2"|"tier3"
     final: str
     completed_posts: list[dict]
-    stage: str                                      # Flow control
-    # HITL flags
+    stage: str                                      # 流程控制
+    # HITL 标记
     needs_approved: bool
     tree_approved: bool
     chapter_plan_approved: bool
@@ -161,149 +160,188 @@ class BlogGenState(TypedDict):
     session_created_at: str
 ```
 
-### Key state patterns
+### 关键状态模式
 
-**Fan-out accumulators**: `per_chapter_drafts` and `per_chapter_reviews` use `Annotated[list[dict], add]`. LangGraph's reducer concatenates results from parallel `Send()` invocations.
+**并行合并器**：`per_chapter_drafts` 和 `per_chapter_reviews` 使用 `Annotated[list[dict], add]`。LangGraph 的 reducer 自动拼接并行 `Send()` 调用返回的结果列表。
 
-**Stage as routing signal**: The `stage` field drives all routing decisions. Each node sets the next stage; `route_after_*` functions read it. No hidden state machines.
+**stage 作为路由信号**：`stage` 字段驱动所有路由决策。每个节点设置下一个 stage，`route_after_*` 函数读取它。没有隐式状态机。
 
-**Writer retry tracking**: `writer_retry_count` increments in `writer_batch_node`. `route_after_review` checks it against `MAX_REVIEW_RETRIES` (2). After 2 retries, the system forces acceptance.
+**重试追踪**：`writer_retry_count` 在 `writer_batch_node` 中递增。`route_after_review` 检查是否超过 `MAX_REVIEW_RETRIES`（当前为 2）。达到上限后强制通过，不阻塞管线。
 
 ---
 
-## 4. Tool Calling System
+## 4. 检查点方案选择
 
-### Design
+### 当前方案：MemorySaver
 
-`_run_with_tools()` in `nodes.py` implements a bounded tool-calling loop:
+**优点**：
+- 零配置，零依赖
+- 运行速度快
 
-1. Bind tools to LLM → SystemMessage + HumanMessage
-2. For each round (up to `max_rounds`):
-   - Check remaining time (<5s → break)
-   - LLM call
-   - If no tool_calls → return content
-   - Execute each tool, append ToolMessage
-   - If hard limit reached → force final output
-3. Final fallback call → return content
+**缺点**：
+- Streamlit 重启后所有进行中的会话丢失
+- 浏览器刷新后需要重新开始
+- 无法恢复中断的生成任务
 
-### Per-agent limits (from config)
+### 替代方案：SqliteSaver
 
-| Agent | Max Rounds | Max Tool Calls | Max Time |
-|-------|-----------|---------------|----------|
+LangGraph 内置的 `SqliteSaver` 将状态持久化到 SQLite 文件：
+
+```python
+from langgraph.checkpoint.sqlite import SqliteSaver
+checkpointer = SqliteSaver.from_conn_string("data/checkpoints.db")
+```
+
+**优点**：
+- **会话持久化**：Streamlit 重启不丢状态，用户可恢复进行中的博客
+- **崩溃恢复**：浏览器崩溃后重新打开可继续
+- **多会话隔离**：多个用户/标签页各自独立
+- **零新依赖**：SQLite 是 Python 标准库自带
+- **路径已配置**：`config.py` 中已有 `SQLITE_PATH` 常量
+- **改动量小**：仅需修改 `session.py` 中一处
+
+**缺点**：
+- 旧会话数据会累积，需要清理策略（如 7 天未活跃自动删除）
+- 磁盘占用极小（每条记录几 KB），实际不是问题
+
+### 建议
+
+**使用 SqliteSaver。** BlogGen 有 4 个 HITL 检查点，一次完整生成通常跨越多轮交互。如果用户浏览器崩溃或 Streamlit 重启，丢失所有进度（聊天记录、知识树、章节规划）体验很差。切换到 SqliteSaver 只需改动 `session.py` 的一行代码，不影响其他模块。SQLite 是 Python 标准库，不需要新依赖。
+
+需要我实现这个切换吗？
+
+---
+
+## 5. 工具调用系统
+
+### 设计
+
+`_run_with_tools()` 实现了有界的工具调用循环：
+
+1. 绑定工具到 LLM → SystemMessage + HumanMessage
+2. 每轮（最多 `max_rounds` 轮）：
+   - 检查剩余时间（<5 秒 → 跳出循环）
+   - LLM 调用
+   - 无 tool_call → 返回内容
+   - 执行每个工具，追加 ToolMessage
+   - 达到硬限制 → 强制输出最终结果
+3. 最终兜底调用 → 返回内容
+
+### 各 Agent 限制（config.py 配置）
+
+| Agent | 最大轮次 | 最大工具调用次数 | 最大耗时 |
+|-------|---------|---------------|---------|
 | knowledge_tree | 2 | 1 | 180s |
 | chapter_planner | 2 | 1 | 120s |
 | writer_chapter | 1 | 1 | 300s |
 | reviewer_chapter | 1 | 1 | 120s |
 
-**Conservative by design.** The tool budget is deliberately small — one web search is usually enough. This prevents agents from falling into infinite search loops.
+**设计原则——保守默认值。** 工具预算刻意设得很小——一次搜索通常足够。这避免了 Agent 陷入搜索死循环消耗大量 API 费用。
 
-### Tool result truncation
+### 工具结果截断
 
-Results >4000 characters are truncated to prevent context explosion. The 4000-char limit was chosen empirically: it's enough for a Tavily search result (title + snippet for 10 results) without bloating the conversation.
+超过 4000 字符的结果会被截断，防止上下文爆炸。4000 字符是一个经验值：足以容纳 Tavily 搜索结果（10 条的标题+摘要），又不会撑爆对话窗口。
 
 ---
 
-## 5. RAG System
+## 6. RAG 系统
 
-### Architecture
+### 架构
 
 ```
-Query → [BM25 (keyword)] + [Vector (semantic)] → RRF merge → [Reranker (optional)] → Top-K
+Query → [BM25 (关键词)] + [向量 (语义)] → RRF 融合 → [Reranker (可选)] → Top-K
 ```
 
-### Component choices
+### 组件选择
 
-- **BGE Embeddings** (bge-large-zh-v1.5): Best-in-class Chinese text embeddings at the time of selection.
-- **ChromaDB**: Lightweight, embedded vector store. No external service needed.
-- **BM25 via rank-bm25**: Keyword matching catches Chinese technical terms that embeddings sometimes miss.
-- **RRF (Reciprocal Rank Fusion)**: Simple, parameter-free fusion algorithm. No tuning needed.
-- **BGE Reranker** (bge-reranker-v2-m3): Optional second pass. Cross-encoder re-ranks top results for precision.
+- **BGE Embedding**（bge-large-zh-v1.5）：选型时中文文本 embedding 效果最好的开源模型之一。
+- **ChromaDB**：轻量级嵌入式向量库，不需要外部服务。
+- **BM25**（rank-bm25）：关键词匹配能捕获中文技术术语（embedding 有时会遗漏）。
+- **RRF（Reciprocal Rank Fusion）**：简单的无参数融合算法，不需要调参。
+- **BGE Reranker**（bge-reranker-v2-m3）：可选的第二遍精排。Cross-encoder 对 Top 结果重新打分。
 
-### Graceful degradation
+### 优雅降级
 
-All RAG components use lazy init with fallback. If `chromadb` or `sentence_transformers` isn't installed:
+所有 RAG 组件使用惰性加载+回退。如果 `chromadb` 或 `sentence_transformers` 未安装：
 - `_rag_available` → False
-- `seed_from_markdown()` and `query_vector_store()` become no-ops
+- `seed_from_markdown()` 和 `query_vector_store()` 变成空操作
 
-This lets the agent pipeline work without RAG — useful for development and CI.
-
----
-
-## 6. Monitoring
-
-### Data collection
-
-`BlogGenMonitorCallback` (LangChain `BaseCallbackHandler`) hooks into:
-- `on_llm_start` / `on_llm_end` → token counts, model name, latency
-- `on_chain_start` / `on_chain_end` → per-node timing
-
-### Output
-
-- **JSONL logs** (`data/logs.jsonl`): One entry per graph invocation, with per-node breakdown
-- **In-memory buffer**: `_session_logs` rolling list for the Streamlit sidebar
-- **Token totals**: Tracked per-session, displayed in UI
+这让 Agent 管线在无 RAG 时也能正常运行——适合开发和 CI 场景。
 
 ---
 
-## 7. Design Tradeoffs & Known Limitations
+## 7. 监控
 
-### Accepted tradeoffs
+### 数据采集
 
-1. **MemorySaver, not SQLite checkpointer.** State is lost on page refresh. Acceptable for a Streamlit app where session lifetime = browser tab lifetime. The `_seed_knowledge_base()` function re-seeds on each new session.
+`BlogGenMonitorCallback`（LangChain `BaseCallbackHandler`）挂在：
+- `on_llm_start` / `on_llm_end` → Token 用量、模型名、延迟
+- `on_chain_start` / `on_chain_end` → 每个节点的耗时
 
-2. **Writer uses Flash, not Pro.** The quality gap (1.9 points) is acceptable for long-form generation. If future evaluations show degradation, switching to Pro is a one-line config change.
+### 输出
 
-3. **No streaming output.** Streamlit's `st.spinner()` + blocking invoke is simpler than streaming SSE chunks. The tradeoff is higher perceived latency for long Writer/Reviewer calls.
-
-4. **Per-chapter review, not holistic.** The structure reviewer catches cross-chapter issues at Tier3, but content-level flow problems between chapters may be missed. Acceptable because chapters are designed to be self-contained units.
-
-### Known limitations
-
-1. **No incremental state persistence.** If the Streamlit server restarts, all in-progress sessions are lost. A SQLite-backed checkpointer would fix this.
-2. **Tier1 coverage check is substring-based.** It can miss semantic omissions (topic mentioned but not actually explained). Tier2 fills this gap with LLM review.
-3. **Single LLM provider.** The system is coupled to DeepSeek. Switching to another provider requires changing the ChatOpenAI base_url and model names.
-4. **No A/B testing for prompts.** Prompt changes are not evaluated against a baseline. Regression risk on prompt edits.
+- **JSONL 日志**（`data/logs.jsonl`）：每次图谱调用一条记录，含逐节点分解
+- **内存缓冲区**：`_session_logs` 滚动列表，供 Streamlit 侧边栏显示
+- **Token 总计**：按会话追踪，显示在 UI 中
 
 ---
 
-## 8. Testing Strategy
+## 8. 设计权衡与已知局限
 
-### Test categories
+### 已接受的权衡
 
-| Category | Count | What it covers |
-|----------|-------|----------------|
-| Schema validation | 36 | Pydantic models, boundary values, fuzzy normalization |
-| Routing logic | 20 | Every conditional edge, retry limits, fan-out decisions |
-| Node logic | ~40 | Mocked LLM calls, agent behavior correctness |
-| Tool system | 13 | Tool invocation, limits, truncation, error handling |
-| Integration | ~15 | Multi-node flows with real (mocked) LLM |
-| E2E | ~12 | Full pipeline from input to output |
-| Regression | ~10 | Fixed bugs encoded as tests |
-| Parser robustness | ~10 | JSON/Markdown parsing edge cases |
+1. **Checkpointer 选型。** 当前用 MemorySaver，后续建议切换到 SqliteSaver（见第 4 节）。
+2. **Writer 用 Flash 模型。** MVP 阶段优先控制成本，生成质量后续实测后再决定是否切 Pro。
+3. **无流式输出。** Streamlit 的 `st.spinner()` + 阻塞式 invoke 比流式 SSE 简单。代价是 Writer/Reviewer 长时间调用时用户感知延迟高。
+4. **逐章独立审查。** Tier3 的结构审查会检查跨章问题，但相邻章节间的细粒度内容衔接问题可能漏过。可接受，因为章节设计本身就是相对独立的单元。
 
-### Testing philosophy
+### 已知局限
 
-- **No real LLM calls.** All tests mock `get_llm()` / `get_fast_llm()` via `unittest.mock`. This keeps the suite fast (~2.75s for 300 tests) and free.
-- **Integration tests use recorded responses.** The `test_integration.py` file tests multi-agent flows with pre-recorded outputs.
-- **Skip markers for optional deps.** `@pytest.mark.skipif(not HAS_LANGGRAPH, ...)` ensures tests still run on machines without the full dependency stack.
+1. **无增量状态持久化。** 当前依赖 MemorySaver，Streamlit 重启丢失所有进度。
+2. **Tier1 子串匹配粗糙。** 能拦截明显缺失，但无法判断语义完整性。Tier2 的 LLM 审查补足这一层。实际拦截效果后续需要评估。
+3. **单一 LLM 提供商。** 系统与 DeepSeek API 耦合。换其他提供商需要改 base_url、模型名，以及重新测试所有 Agent 的输出格式兼容性。
+4. **Prompt 无 A/B 测试。** 修改 prompt 后没有和基线对比的机制，存在回归风险。
 
 ---
 
-## 9. Configuration Design
+## 9. 测试策略
 
-### Two-tier config
+### 测试类别
 
-**`.env` for secrets** (API keys, feature flags):
-- `DEEPSEEK_API_KEY` — validated at import time, rejects placeholder values
-- `TAVILY_API_KEY` — only required if `ENABLE_NETWORK_SEARCH=true`
-- `ENABLE_NETWORK_SEARCH` — feature flag for cost control
+| 类别 | 数量 | 覆盖内容 |
+|------|------|---------|
+| Schema 校验 | 36 | Pydantic 模型、边界值、模糊输入规范化 |
+| 路由逻辑 | 20 | 每个条件边、重试上限、fan-out 决策 |
+| 节点逻辑 | ~40 | Mock LLM 调用、Agent 行为正确性 |
+| 工具系统 | 13 | 工具调用、限制、截断、错误处理 |
+| 集成测试 | ~15 | 多节点流程（使用模拟 LLM） |
+| E2E | ~12 | 从输入到输出的完整管线 |
+| 回归测试 | ~10 | 已修复 Bug 编码为测试 |
+| 解析鲁棒性 | ~10 | JSON/Markdown 解析边界情况 |
 
-**`config.py` for behavior** (depth rules, tool limits, style rules):
-- `DEPTH_RULES` — per-level (beginner/intermediate/advanced) word budgets, code requirements
-- `STYLE_RULES` — writing style preferences (practical/theoretical/balanced)
-- `MAX_TOOL_*` — per-agent tool calling limits (calls, rounds, timeout)
-- `MAX_REVIEW_RETRIES` — global retry cap (currently 2)
+### 测试理念
 
-### Design principle: conservative defaults
+- **不调用真实 LLM。** 所有测试用 `unittest.mock` 替换 `get_llm()`/`get_fast_llm()`。这样保持测试快速（300 个测试约 3 秒）且免费。
+- **集成测试用录制数据。** `test_integration.py` 用预录的 LLM 输出测试多 Agent 流程。
+- **可选依赖用 skip 标记。** `@pytest.mark.skipif(not HAS_LANGGRAPH, ...)` 确保在不完整环境上也能跑。
 
-All tool limits are deliberately small. The pipeline should complete without tools (offline knowledge) whenever possible. Web search is opt-in via `ENABLE_NETWORK_SEARCH`. This keeps costs predictable.
+---
+
+## 10. 配置设计
+
+### 两级配置
+
+**`.env` 管密钥**（API key、功能开关）：
+- `DEEPSEEK_API_KEY` — 导入时校验，拒绝占位符值
+- `TAVILY_API_KEY` — 仅当 `ENABLE_NETWORK_SEARCH=true` 时需要
+- `ENABLE_NETWORK_SEARCH` — 成本控制开关
+
+**`config.py` 管行为**（深度规则、工具限制、风格规则）：
+- `DEPTH_RULES` — 按水平（beginner/intermediate/advanced）配置字数预算、代码要求
+- `STYLE_RULES` — 写作风格（practical/theoretical/balanced）
+- `MAX_TOOL_*` — 每个 Agent 的工具调用限制（次数、轮次、超时）
+- `MAX_REVIEW_RETRIES` — 全局重试上限（当前 2）
+
+### 设计原则：默认保守
+
+所有工具限制刻意设小。管线应优先在不使用外部工具的情况下完成（依靠 LLM 自身知识）。Web 搜索通过 `ENABLE_NETWORK_SEARCH` 开关控制。这保持了成本可预测。
