@@ -584,7 +584,7 @@ def writer_single_chapter_node(state: dict) -> dict:
     Returns per_chapter_drafts accumulator entry — LangGraph merges parallel
     results via operator.add reducer.
     """
-    llm = get_fast_llm(temperature=0.5)  # Flash: 生成长文差距仅1.9分，12x成本节省
+    llm = get_llm(temperature=0.5)  # Pro: 推理能力更强，遵从章结构和字数约束更好
     tools = list(_get_tool_definitions())
     profile = state.get("user_needs", {})
 
@@ -601,10 +601,9 @@ def writer_single_chapter_node(state: dict) -> dict:
     level = profile.get("level", "beginner")
     rule = DEPTH_RULES.get(level, DEPTH_RULES["beginner"])
     max_words = rule.get("max_words_per_chapter", 1200)
-    # Word budget: use a tighter target to compensate for Flash overshooting.
-    # Flash generates 2-2.5x more chars than requested due to code blocks,
-    # markdown syntax, and English terms counting differently from Chinese "字".
-    prompt_budget = int(max_words * 0.65)
+    # Pro follows constraints better than Flash; use 0.85x target
+    # (still slightly conservative to account for code blocks counting as chars)
+    prompt_budget = int(max_words * 0.85)
     word_budget = (
         f"【硬性约束——违反必驳回】本章总字数（含代码块、英文、Markdown标记在内的全部字符）"
         f"不得超过 {max_words} 字。代码块的每一行都算字数。"

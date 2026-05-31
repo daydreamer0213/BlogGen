@@ -47,7 +47,7 @@ class TestWriterSingleChapterNode:
             },
             "user_needs": {"level": "beginner", "style": "balanced"},
         }
-        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(SAMPLE_CHAPTER)):
+        with patch("src.agents.nodes.get_llm", return_value=_mock_llm(SAMPLE_CHAPTER)):
             result = writer_single_chapter_node(state)
             assert "per_chapter_drafts" in result
             drafts = result["per_chapter_drafts"]
@@ -69,7 +69,7 @@ class TestWriterSingleChapterNode:
             "user_needs": {"level": "intermediate", "style": "theoretical"},
         }
         llm = _mock_llm("Chapter content here.")
-        with patch("src.agents.nodes.get_fast_llm", return_value=llm):
+        with patch("src.agents.nodes.get_llm", return_value=llm):
             writer_single_chapter_node(state)
             # The user prompt passed to _run_with_tools should include chapter info
             invoke_call = llm.invoke.call_args
@@ -99,7 +99,7 @@ class TestWriterSingleChapterNode:
                 ]
             },
         }
-        with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm("Fixed chapter.")):
+        with patch("src.agents.nodes.get_llm", return_value=_mock_llm("Fixed chapter.")):
             result = writer_single_chapter_node(state)
             assert len(result["per_chapter_drafts"]) == 1
             assert result["per_chapter_drafts"][0]["draft_content"] == "Fixed chapter."
@@ -206,7 +206,7 @@ class TestWriterBatchNode:
         }
         mock_llm = _mock_llm("Chapter draft content.")
         drafts = []
-        with patch("src.agents.nodes.get_fast_llm", return_value=mock_llm):
+        with patch("src.agents.nodes.get_llm", return_value=mock_llm):
             for i in range(3):
                 r = writer_single_chapter_node({**state, "_fanout_chapter_index": i})
                 drafts.extend(r.get("per_chapter_drafts", []))
@@ -239,7 +239,7 @@ class TestWriterBatchNode:
             "writer_retry_count": 0,
         }
         mock_llm = _mock_llm("Fixed Ch1.")
-        with patch("src.agents.nodes.get_fast_llm", return_value=mock_llm):
+        with patch("src.agents.nodes.get_llm", return_value=mock_llm):
             # Only chapter 0 is rewritten
             ch_state = {**state, "_fanout_chapter_index": 0, "writer_retry_count": 1}
             writer_single_chapter_node(ch_state)
