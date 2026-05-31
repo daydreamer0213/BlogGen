@@ -684,13 +684,25 @@ def writer_single_chapter_node(state: dict) -> dict:
                 f"其他段落逐字保留原文。输出完整章节。"
             )
     else:
+        # Build full chapter outline so Writer knows where its chapter fits
+        all_chapters = state.get("chapter_plan", {}).get("chapters", [])
+        outline_lines = []
+        for j, och in enumerate(all_chapters):
+            och_title = och.get("title", f"Ch{j+1}")
+            if j == chapter_idx:
+                outline_lines.append(f"  ▶ 第{j+1}章：{och_title} ← 你负责写这一章")
+            else:
+                outline_lines.append(f"    第{j+1}章：{och_title}")
+        outline = "\n".join(outline_lines)
+
         user_prompt = (
             f"{word_budget}\n\n"
-            f"## 章节：{chapter_title}\n"
+            f"## 全文大纲（共{len(all_chapters)}章）\n{outline}\n\n"
+            f"## 你的章节：{chapter_title}\n"
             f"## 需要覆盖的知识点\n" + "\n".join(f"- {kp}" for kp in key_points) + "\n\n"
             f"## 用户水平：{profile.get('level', 'beginner')}\n"
             f"## 风格偏好：{profile.get('style', 'balanced')}\n\n"
-            f"请只撰写这一章的内容（不要写整篇博客）。输出完整 Markdown 章节，"
+            f"请只撰写这一章的内容（不要写其他章）。输出完整 Markdown 章节（## 标题开头），"
             f"包含代码示例和运行结果。再次强调：{word_budget}"
         )
 
@@ -805,9 +817,19 @@ def tier1_check_node(state: dict) -> dict:
             })
             continue
 
-        # Check 1: word count per chapter
+        # Check 1: word count per chapter (both max and min)
         ch_words = len(ch_content)
-        if ch_words > max_words:
+        min_words = 300  # 300 chars minimum — prevents stub chapters
+        if ch_words < min_words:
+            all_issues.append({
+                "chapter_index": i,
+                "paragraph": ch_title,
+                "type": "内容缺失",
+                "severity": "critical",
+                "description": f"章节「{ch_title}」仅{ch_words}字，低于最低要求{min_words}字",
+                "suggestion": f"完整撰写本章内容，覆盖所有计划知识点，至少{min_words}字",
+            })
+        elif ch_words > max_words:
             all_issues.append({
                 "chapter_index": i,
                 "paragraph": ch_title,

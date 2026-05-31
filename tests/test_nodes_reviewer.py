@@ -345,13 +345,14 @@ class TestTier1CheckNode:
 
     def test_all_pass(self):
         from src.agents.nodes import tier1_check_node
+        content = "RAG概念是检索增强生成的核心思想。" * 20  # >300 chars for min check
         state = {
             "chapter_plan": {
                 "chapters": [
                     {"title": "Ch1", "key_points": ["RAG概念"]},
                 ],
             },
-            "assembled_draft": "## Ch1\n\nRAG概念是核心，检索流程也很简单。",
+            "assembled_draft": "## Ch1\n\n" + content,
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
@@ -361,13 +362,14 @@ class TestTier1CheckNode:
         """Tier1 no longer checks topic coverage (substring FP too high).
         Coverage is now Reviewer's responsibility."""
         from src.agents.nodes import tier1_check_node
+        content = "RAG概念讲得很清楚。" * 30  # >300 chars for min check
         state = {
             "chapter_plan": {
                 "chapters": [
                     {"title": "Ch1", "key_points": ["RAG概念", "缺失知识点"]},
                 ],
             },
-            "assembled_draft": "## Ch1\n\nRAG概念讲得很清楚。",
+            "assembled_draft": "## Ch1\n\n" + content,
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
@@ -375,7 +377,8 @@ class TestTier1CheckNode:
 
     def test_code_block_too_long(self):
         from src.agents.nodes import tier1_check_node
-        content = "## Ch1\n\nRAG概念。\n\n```python\n" + "\n".join(f"line_{i}" for i in range(35)) + "\n```"
+        base = "RAG概念是检索增强生成的核心思想，通过外部知识库检索来增强大模型的回答质量。" * 3
+        content = "## Ch1\n\n" + base + "\n\n```python\n" + "\n".join(f"line_{i}" for i in range(35)) + "\n```"
         state = {
             "chapter_plan": {
                 "chapters": [
