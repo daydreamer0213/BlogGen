@@ -142,8 +142,7 @@ class TestAssemblerNode:
         idx2 = result["assembled_draft"].index("第二章")
         assert idx1 < idx2
         assert result["stage"] == "writer_done"
-        # per_chapter_drafts must be cleared after assembly
-        assert result["per_chapter_drafts"] == []
+        # per_chapter_drafts kept for Tier1/Reviewer index-based lookup
 
     def test_assembler_empty_drafts(self):
         state = {**initial_state(), "per_chapter_drafts": []}

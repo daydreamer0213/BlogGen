@@ -776,10 +776,10 @@ def assembler_node(state: dict) -> dict:
     assembled = "\n".join(parts).strip()
 
     retries = state.get("writer_retry_count", 0)
+    # Keep per_chapter_drafts so Tier1/Reviewer can read by index (not title match)
     return {
         "assembled_draft": assembled,
         "draft": assembled,
-        "per_chapter_drafts": [],
         "writer_retry_count": retries,
         "stage": "writer_done",
     }
@@ -819,16 +819,19 @@ def tier1_check_node(state: dict) -> dict:
     import re
     chapter_plan = state.get("chapter_plan", {})
     chapters = chapter_plan.get("chapters", [])
-    assembled = state.get("assembled_draft", state.get("draft", ""))
     profile = state.get("user_needs", {})
     level = profile.get("level", "beginner")
     max_words = DEPTH_RULES.get(level, DEPTH_RULES["beginner"]).get("max_words_per_chapter", 2000)
+
+    # Read chapter content by index (not title — Writer may use different headings)
+    per_drafts = state.get("per_chapter_drafts", [])
+    draft_by_idx = {d.get("chapter_index", -1): d.get("draft_content", "") for d in per_drafts}
 
     all_issues = []
 
     for i, ch in enumerate(chapters):
         ch_title = ch.get("title", f"Ch{i+1}")
-        ch_content = _extract_chapter_draft(assembled, ch_title)
+        ch_content = draft_by_idx.get(i, "")
         if not ch_content:
             all_issues.append({
                 "chapter_index": i,
@@ -881,8 +884,7 @@ def tier1_check_node(state: dict) -> dict:
         # Collect chapter contents so Writer can do precise edits in fix-mode
         chapter_contents = {}
         for i, ch in enumerate(chapters):
-            ch_title = ch.get("title", f"Ch{i+1}")
-            ch_content = _extract_chapter_draft(assembled, ch_title)
+            ch_content = draft_by_idx.get(i, "")
             if ch_content:
                 chapter_contents[i] = ch_content
 
@@ -1195,10 +1197,12 @@ def _make_reviewer_single_chapter():
         chapter = chapters[chapter_idx]
         chapter_title = chapter.get("title", f"Chapter {chapter_idx + 1}")
 
-        assembled = state.get("assembled_draft", state.get("draft", ""))
-        chapter_content = _extract_chapter_draft(assembled, chapter_title)
+        # Read chapter content by index (not title — Writer may use different headings)
+        per_drafts = state.get("per_chapter_drafts", [])
+        draft_by_idx = {d.get("chapter_index", -1): d.get("draft_content", "") for d in per_drafts}
+        chapter_content = draft_by_idx.get(chapter_idx, "")
         if not chapter_content:
-            chapter_content = f"(content not found for: {chapter_title})"
+            chapter_content = f"(content not found for chapter index {chapter_idx})"
 
         key_points = chapter.get("key_points", [])
         points_text = "\n".join(f"- {kp}" for kp in key_points)

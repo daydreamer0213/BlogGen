@@ -352,7 +352,9 @@ class TestTier1CheckNode:
                     {"title": "Ch1", "key_points": ["RAG概念"]},
                 ],
             },
-            "assembled_draft": "## Ch1\n\n" + content,
+            "per_chapter_drafts": [
+                {"chapter_index": 0, "chapter_title": "Ch1", "draft_content": content},
+            ],
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
@@ -369,7 +371,9 @@ class TestTier1CheckNode:
                     {"title": "Ch1", "key_points": ["RAG概念", "缺失知识点"]},
                 ],
             },
-            "assembled_draft": "## Ch1\n\n" + content,
+            "per_chapter_drafts": [
+                {"chapter_index": 0, "chapter_title": "Ch1", "draft_content": content},
+            ],
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
@@ -378,14 +382,16 @@ class TestTier1CheckNode:
     def test_code_block_too_long(self):
         from src.agents.nodes import tier1_check_node
         base = "RAG概念是检索增强生成的核心思想，通过外部知识库检索来增强大模型的回答质量。" * 3
-        content = "## Ch1\n\n" + base + "\n\n```python\n" + "\n".join(f"line_{i}" for i in range(35)) + "\n```"
+        content = base + "\n\n```python\n" + "\n".join(f"line_{i}" for i in range(35)) + "\n```"
         state = {
             "chapter_plan": {
                 "chapters": [
                     {"title": "Ch1", "key_points": ["RAG概念"]},
                 ],
             },
-            "assembled_draft": content,
+            "per_chapter_drafts": [
+                {"chapter_index": 0, "chapter_title": "Ch1", "draft_content": content},
+            ],
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
@@ -400,7 +406,7 @@ class TestTier1CheckNode:
                     {"title": "不存在", "key_points": []},
                 ],
             },
-            "assembled_draft": "## Other\n\nSome content.",
+            "per_chapter_drafts": [],
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
