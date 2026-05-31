@@ -98,7 +98,7 @@ def route_review_to_chapters(state: BlogGenState):
 def route_after_tier1(state: BlogGenState) -> Literal["review_batch", "writer_batch"]:
     if state.get("tier1_pass", False):
         return "review_batch"
-    if state.get("writer_retry_count", 0) > MAX_REVIEW_RETRIES:
+    if state.get("writer_retry_count", 0) >= MAX_REVIEW_RETRIES:
         return "review_batch"
     return "writer_batch"
 
@@ -107,7 +107,7 @@ def route_after_review(state: BlogGenState) -> Literal["writer_batch", "next_pos
     stage = state.get("stage")
     retries = state.get("writer_retry_count", 0)
 
-    if stage == "review_reject" and retries <= MAX_REVIEW_RETRIES:
+    if stage == "review_reject" and retries < MAX_REVIEW_RETRIES:
         return "writer_batch"
 
     if stage == "review_pass":

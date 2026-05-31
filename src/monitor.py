@@ -37,6 +37,25 @@ def get_session_summary() -> dict:
     }
 
 
+def _node_to_agent(node_name: str) -> str:
+    """Map LangGraph node names to readable agent names for logging."""
+    _MAP = {
+        "needs_alignment": "NeedsAlignment",
+        "knowledge_tree": "KnowledgeTree",
+        "chapter_planner": "ChapterPlanner",
+        "writer_batch": "Writer",
+        "write_chapter": "Writer",
+        "assembler": "Assembler",
+        "tier1_check": "Tier1Check",
+        "review_batch": "Reviewer",
+        "review_chapter": "Reviewer",
+        "assemble_reviews": "Reviewer",
+        "next_post": "FlowControl",
+        "split_posts": "ChapterPlanner",
+    }
+    return _MAP.get(node_name, node_name)
+
+
 # ================================================================
 # LangChain Callback: per-node timing + per-LLM token tracking
 # ================================================================
@@ -83,7 +102,7 @@ class BlogGenMonitorCallback(BaseCallbackHandler):
         latency = (time.time() - t_start) * 1000
         _write_log({
             "timestamp": datetime.now().isoformat(),
-            "agent": name,
+            "agent": _node_to_agent(name),
             "llm_calls": list(self._current_llm_calls),
             "tool_calls": list(self._current_tool_calls),
             "total_latency_ms": round(latency, 1),
@@ -98,7 +117,7 @@ class BlogGenMonitorCallback(BaseCallbackHandler):
         latency = (time.time() - t_start) * 1000
         _write_log({
             "timestamp": datetime.now().isoformat(),
-            "agent": name,
+            "agent": _node_to_agent(name),
             "llm_calls": list(self._current_llm_calls),
             "tool_calls": list(self._current_tool_calls),
             "total_latency_ms": round(latency, 1),

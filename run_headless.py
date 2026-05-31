@@ -1,10 +1,23 @@
-"""Headless pipeline test — bypasses HITL, saves output to disk."""
-import sys, time, json, traceback
+"""Headless pipeline test — bypasses HITL, saves output to disk.
+
+Usage:
+    python run_headless.py                  # default 600s timeout
+    python run_headless.py --timeout 300    # 5-minute timeout
+"""
+import sys, time, json, traceback, argparse
 from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--timeout", type=int, default=600, help="Max seconds (default 600)")
+args = parser.parse_args()
 
 print("=" * 60, flush=True)
 print("BlogGen Headless Pipeline Test", flush=True)
+print(f"      Timeout: {args.timeout}s", flush=True)
 print("=" * 60, flush=True)
+
+# Record start time for log filtering
+RUN_START = time.strftime("%Y-%m-%dT%H:%M")
 
 # Init
 print("[1/4] Loading session...", flush=True)
@@ -18,16 +31,35 @@ user = "我想学RAG，我是初学者，学到能够通过AI应用开发面试�
 s.update_state({"messages": [{"role": "user", "content": user}]})
 print(f"[2/4] Input: {user}", flush=True)
 
-# Run
-print("[3/4] Running pipeline...", flush=True)
+# Run (with timeout)
+print(f"[3/4] Running pipeline (timeout={args.timeout}s)...", flush=True)
+import threading
 t0 = time.time()
-try:
-    result = s.invoke()
-except Exception as e:
-    print(f"\nFATAL: {type(e).__name__}: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
-elapsed = time.time() - t0
+invoke_error: str | None = None
+result: dict = {}
+
+def _run():
+    global invoke_error, result
+    try:
+        result = s.invoke()
+    except Exception as e:
+        invoke_error = f"{type(e).__name__}: {e}"
+        traceback.print_exc()
+
+thread = threading.Thread(target=_run, daemon=True)
+thread.start()
+thread.join(timeout=args.timeout)
+
+if thread.is_alive():
+    elapsed = time.time() - t0
+    print(f"\n*** TIMEOUT after {elapsed:.0f}s — pipeline did not finish within {args.timeout}s", flush=True)
+    print(f"   Current state saved to checkpoints.db for inspection", flush=True)
+    # Don't sys.exit — show partial results
+else:
+    elapsed = time.time() - t0
+    if invoke_error:
+        print(f"\nFATAL: {invoke_error}", flush=True)
+        sys.exit(1)
 
 # Results
 state = s.get_state()
@@ -87,7 +119,7 @@ with open("data/logs.jsonl", "r", encoding="utf-8") as f:
         if line.strip():
             e = json.loads(line)
             t = e.get("timestamp", "")
-            if "17:" in t or "18:" in t or "19:" in t:
+            if RUN_START in t:
                 entries.append(e)
 for e in entries:
     ts = e["timestamp"][:19].replace("T", " ")

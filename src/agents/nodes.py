@@ -375,17 +375,18 @@ def knowledge_tree_node(state: dict) -> dict:
     try:
         tree = validate_or_raise(KnowledgeTree, tree, "KnowledgeTreeBuilder")
     except ValueError:
-        retry_prompt = (
-            f"你之前的输出格式有误。请严格按格式重新输出：\n"
-            f"# 领域名称  →  - 知识点1  →  - 知识点2\n"
-            f"每行一个 - 知识点，不要分组，不要编号，不要标题。"
-        )
-        retry_text = _run_with_tools(llm, system_prompt, retry_prompt, tools, agent_name="knowledge_tree_retry")
-        tree = _parse_knowledge_tree_markdown(retry_text)
-        try:
-            tree = validate_or_raise(KnowledgeTree, tree, "KnowledgeTreeBuilder-retry")
-        except ValueError:
-            # Retry failed → use whatever topics were parsed, domain from original parse
+        # If we already have topics, skip the retry — format issues are cosmetic
+        topics = tree.get("topics", []) if isinstance(tree, dict) else []
+        if topics:
+            tree = {"domain": profile.get("domain", ""), "topics": topics}
+        else:
+            retry_prompt = (
+                f"你之前的输出格式有误，没有解析到任何知识点。请严格按格式重新输出：\n"
+                f"# 领域名称  →  - 知识点1  →  - 知识点2\n"
+                f"每行一个 - 知识点，不要分组，不要编号，不要标题。"
+            )
+            retry_text = _run_with_tools(llm, system_prompt, retry_prompt, tools, agent_name="knowledge_tree_retry")
+            tree = _parse_knowledge_tree_markdown(retry_text)
             parsed_domain = tree.get("domain", "") if isinstance(tree, dict) else ""
             tree = {"domain": parsed_domain, "topics": tree.get("topics", []) if isinstance(tree, dict) else []}
 
@@ -590,10 +591,14 @@ def writer_single_chapter_node(state: dict) -> dict:
     level = profile.get("level", "beginner")
     rule = DEPTH_RULES.get(level, DEPTH_RULES["beginner"])
     max_words = rule.get("max_words_per_chapter", 1200)
-    # Strong word budget — repeated at start and end of prompt
+    # Word budget: use a tighter target to compensate for Flash overshooting.
+    # Flash generates 2-2.5x more chars than requested due to code blocks,
+    # markdown syntax, and English terms counting differently from Chinese "字".
+    prompt_budget = int(max_words * 0.65)
     word_budget = (
-        f"【硬性约束】本章最多 {max_words} 字。超过此限制会被自动打回重写。"
-        f"每段控制在 200 字以内，代码块 ≤30 行。"
+        f"【硬性约束——违反必驳回】本章总字数（含代码块、英文、Markdown标记在内的全部字符）"
+        f"不得超过 {max_words} 字。代码块的每一行都算字数。"
+        f"目标：{prompt_budget} 字以内。每段 ≤150 字，代码块 ≤20 行。"
     )
 
     level_prompt = WRITER_PROMPT.replace(
@@ -854,12 +859,20 @@ def prepare_review_batch_node(state: dict) -> dict:
 
     Conditional edge route_review_to_chapters returns
     [Send("review_chapter", ...)] → parallel reviews → assemble_reviews.
+
+    Skips structure_reviewer on retries — tier1/2 fixes are per-chapter,
+    cross-chapter structure hasn't changed since last review.
     """
     chapters = state.get("chapter_plan", {}).get("chapters", [])
     if not chapters:
         return {"_error": "No chapters to review", "stage": "review_error"}
 
-    struct_result = structure_reviewer_node(state)
+    retries = state.get("writer_retry_count", 0)
+    if retries > 0 and state.get("structure_review"):
+        # Reuse previous structure review on retries
+        struct_result = {"structure_review": state["structure_review"]}
+    else:
+        struct_result = structure_reviewer_node(state)
     return {
         "structure_review": struct_result.get("structure_review", {}),
         "per_chapter_reviews": [],  # Reset accumulator for add reducer
