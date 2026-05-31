@@ -40,7 +40,7 @@ class TestFullPipelineHappyPath:
         assert result2["stage"] == "knowledge_tree_done"
 
         chapter_plan = {"post_title": "RAG", "chapters": [{"title": "Ch1", "key_points": ["a"]}]}
-        draft = "# RAG\n\n## Ch1\n\nContent."
+        draft = "# RAG\n\n## Ch1\n\nThis is the content of chapter one with enough text."
         mock4 = _make_mock_llm([draft])
         with patch("src.agents.nodes.get_fast_llm", return_value=mock4):
             with patch("src.agents.nodes._run_with_tools", return_value=draft):

@@ -1158,9 +1158,6 @@ def _make_reviewer_single_chapter():
         key_points = chapter.get("key_points", [])
         points_text = "\n".join(f"- {kp}" for kp in key_points)
 
-        # Code-based coverage check: which key_points are missing?
-        # Code check on full content
-        coverage_issues = _check_topic_coverage(chapter, chapter_content)
         ch_content_len = len(chapter_content)
 
         # Build checklist prompt
@@ -1171,37 +1168,36 @@ def _make_reviewer_single_chapter():
         sys_prompt = sys_prompt.replace("{level_instruction}", level_str)
         sys_prompt = sys_prompt.replace("{chapter_idx}", str(ch_label))
 
-        user_prompt = (
-            f"## 章节 {ch_label}：{chapter_title}\n"
-            f"## 正文（共 {ch_content_len} 字）\n{chapter_content}\n\n"
-            f"如果「知识点覆盖」项不通过，请参考以下代码检测结果：\n"
-            + "\n".join(f"- 缺失：{i['description']}" for i in coverage_issues)
-        )
-
-        resp_text = _run_with_tools(llm, sys_prompt, user_prompt, tools, agent_name="reviewer_chapter")
-        review = _parse_review_markdown(resp_text)
-
-        # Merge code-based coverage issues + LLM issues
-        llm_issues = review.get("issues", [])
-        for issue in llm_issues:
-            if "chapter_index" not in issue:
-                issue["chapter_index"] = chapter_idx
-        # Add code-detected issues that LLM didn't already flag
-        llm_descriptions = {i.get("description", "") for i in llm_issues}
-        for ci in coverage_issues:
-            if ci["description"] not in llm_descriptions:
-                ci["chapter_index"] = chapter_idx
-                llm_issues.append(ci)
-        review["issues"] = llm_issues
-
-        # Code-detected coverage gaps are hints for the LLM reviewer, not hard failures.
-        # Substring matching can produce false positives when the Writer uses different
-        # wording than the knowledge point list. The LLM reviewer makes the final call.
-        # Only force reject if coverage issues are critical (e.g., empty chapter).
-        critical_coverage = [i for i in coverage_issues if i.get("severity") == "critical"]
-        if review.get("action") == "accept" and critical_coverage:
-            review["action"] = "reject"
-            review["overall_assessment"] = "关键内容缺失，需补充"
+        # Empty chapter detection (no LLM needed). 10 chars catches truly empty
+        # chapters while allowing even minimal test content through.
+        if not chapter_content or ch_content_len < 10:
+            review = {
+                "action": "reject",
+                "word_count": 0,
+                "overall_assessment": f"章节「{chapter_title}」内容为空或过短({ch_content_len}字)",
+                "issues": [{
+                    "chapter_index": chapter_idx,
+                    "paragraph": chapter_title,
+                    "type": "内容缺失",
+                    "severity": "critical",
+                    "description": f"章节内容仅{ch_content_len}字，需完整撰写",
+                    "suggestion": "重新生成该章节",
+                }],
+            }
+        else:
+            user_prompt = (
+                f"## 章节 {ch_label}：{chapter_title}\n"
+                f"## 计划覆盖知识点\n{points_text}\n\n"
+                f"## 正文（共 {ch_content_len} 字）\n{chapter_content}\n\n"
+                f"请逐项检查清单。注意：知识点可能以不同措辞覆盖，请用语义理解而非字面匹配。"
+            )
+            resp_text = _run_with_tools(llm, sys_prompt, user_prompt, tools, agent_name="reviewer_chapter")
+            review = _parse_review_markdown(resp_text)
+            llm_issues = review.get("issues", [])
+            for issue in llm_issues:
+                if "chapter_index" not in issue:
+                    issue["chapter_index"] = chapter_idx
+            review["issues"] = llm_issues
 
         try:
             review = validate_or_raise(ReviewResult, review, f"Reviewer-ch{chapter_idx}")

@@ -159,21 +159,20 @@ class TestReviewerSingleChapterNode:
             assert len(reviews) == 1
             assert reviews[0]["chapter_index"] == 0
 
-    def test_reviewer_reject_missing_topics(self):
-        """Minor coverage mismatches no longer force reject — LLM reviewer decides.
+    def test_reviewer_trusts_llm_judgment(self):
+        """Reviewer trusts LLM's judgment — no more code-detected hint injection.
 
-        Code-detected issues are passed to the LLM as hints but do not override
-        the LLM's accept decision. Only critical issues (empty chapters) force reject.
+        Substring matching on key_points is unreliable (Writer uses different
+        Chinese phrasing). The Reviewer makes its own semantic decision.
         """
         state = self.setup_state()
         state["chapter_plan"]["chapters"][0]["key_points"].append("NOT_IN_CONTENT")
         with patch("src.agents.nodes.get_fast_llm", return_value=_mock_llm(PASS_REVIEW)):
             result = reviewer_single_chapter_node(state)
             review = result["per_chapter_reviews"][0]["review"]
-            # LLM says pass → accept, even if code found minor mismatches
+            # LLM says pass → accept. No code-detected hints injected.
             assert review["action"] == "accept"
-            # But the code-detected issue is still in the issues list as a hint
-            assert any("NOT_IN_CONTENT" in i["description"] for i in review["issues"])
+            assert len(review["issues"]) == 0
 
     def test_reviewer_no_content_found(self):
         """When chapter draft can't be extracted from assembled."""
@@ -283,7 +282,7 @@ class TestReviewerAssemblerPipeline:
     """Reviewer → AssembleReviews → state for retry or pass."""
 
     def test_full_review_flow_pass(self):
-        draft = "## 什么是RAG\n\nRAG概念的核心是检索增强生成。\n\n## 检索流程\n\n检索流程很重要。"
+        draft = "## 什么是RAG\n\nRAG概念的核心是检索增强生成，通过知识库检索来增强大模型能力。\n\n## 检索流程\n\n检索流程很重要，包括索引构建和相似度搜索。"
         state = {
             **initial_state(),
             "chapter_plan": {
