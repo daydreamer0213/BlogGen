@@ -358,7 +358,9 @@ class TestTier1CheckNode:
         result = tier1_check_node(state)
         assert result["tier1_pass"] is True
 
-    def test_missing_topic(self):
+    def test_missing_topic_no_longer_blocked_by_tier1(self):
+        """Tier1 no longer checks topic coverage (substring FP too high).
+        Coverage is now Reviewer's responsibility."""
         from src.agents.nodes import tier1_check_node
         state = {
             "chapter_plan": {
@@ -370,9 +372,7 @@ class TestTier1CheckNode:
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
-        assert result["tier1_pass"] is False
-        assert result["reject_level"] == "tier1"
-        assert any("缺失知识点" in i["description"] for i in result["review_feedback"]["issues"])
+        assert result["tier1_pass"] is True
 
     def test_code_block_too_long(self):
         from src.agents.nodes import tier1_check_node

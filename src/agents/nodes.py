@@ -625,14 +625,13 @@ def writer_single_chapter_node(state: dict) -> dict:
         issues_text = json.dumps(ch_issues, ensure_ascii=False, indent=2)
 
         if reject_level == "tier1":
-            # Classify issues: word-count-only vs content issues (topic coverage, code)
+            # Classify issues: word-count-only vs needs-original (code, empty chapter)
             content_issues = [i for i in ch_issues
                            if i.get("type") not in ("字数控制",)]
             word_only = bool(ch_issues) and not content_issues
 
             if word_only:
-                # Pure word-count rejection: skip full original text to prevent
-                # prompt explosion in the retry loop. Only pass budget + target.
+                # Pure word-count rejection: skip full original text.
                 current_words = len(original)
                 user_prompt = (
                     f"## 章节：{chapter_title}\n"
@@ -651,12 +650,12 @@ def writer_single_chapter_node(state: dict) -> dict:
                     f"## 需要覆盖的知识点\n" + "\n".join(f"- {kp}" for kp in key_points) + "\n\n"
                     f"## 字数约束：{word_budget}\n\n"
                     f"## 原文\n{original}\n\n"
-                    f"## 代码检查发现问题（只修这些问题，其余原文照搬）\n{issues_text}\n\n"
+                    f"## 检查发现问题（只修这些问题，其余原文照搬）\n{issues_text}\n\n"
                     f"## 用户水平：{profile.get('level', 'beginner')}\n\n"
                     f"修改规则：\n"
-                    f"1. 缺失的知识点 → 在合适位置插入简短讲解\n"
-                    f"2. 代码块超过30行 → 精简伪代码，移除样板\n"
-                    f"3. 字数超标 → 删减冗余内容，保留核心\n"
+                    f"1. 代码块超过30行 → 精简伪代码，移除样板代码\n"
+                    f"2. 字数超标 → 删减冗余内容，保留核心\n"
+                    f"3. 章节为空 → 请完整撰写本章内容\n"
                     f"4. 其他段落逐字保留原文，不要改动。输出完整章节。"
                 )
         elif reject_level == "tier2":
@@ -767,15 +766,19 @@ def writer_batch_node(state: dict) -> dict:
 # ================================================================
 
 def tier1_check_node(state: dict) -> dict:
-    """Code-level rule check on all chapters. No LLM calls — pure Python.
+    """Mechanical rule check on all chapters. No LLM calls — pure Python.
 
     Checks per chapter:
-      1. Topic coverage: does each key_point appear in chapter content?
+      1. Chapter presence: does the chapter content exist?
       2. Word count: is the chapter within DEPTH_RULES limits?
-      3. Code block size: any code block >15 lines? (pseudo-code policy)
+      3. Code block size: any code block >30 lines?
+
+    Topic coverage is NOT checked here — substring matching on key_points
+    produces too many false positives (Writer discusses the topic using
+    different Chinese phrasing). The Reviewer (Pro) handles coverage.
 
     Returns {tier1_pass: bool, tier1_issues: list}.
-    If pass → routes to Tier2 (structure review).
+    If pass → routes to review_batch.
     If fail → routes back to Writer with reject_level="tier1".
     """
     import re
@@ -795,20 +798,14 @@ def tier1_check_node(state: dict) -> dict:
             all_issues.append({
                 "chapter_index": i,
                 "paragraph": ch_title,
-                "type": "知识点覆盖",
+                "type": "内容缺失",
                 "severity": "critical",
                 "description": f"章节「{ch_title}」内容为空或未找到",
                 "suggestion": "重新生成该章节",
             })
             continue
 
-        # Check 1: topic coverage
-        coverage_issues = _check_topic_coverage(ch, ch_content)
-        for ci in coverage_issues:
-            ci["chapter_index"] = i
-        all_issues.extend(coverage_issues)
-
-        # Check 2: word count per chapter
+        # Check 1: word count per chapter
         ch_words = len(ch_content)
         if ch_words > max_words:
             all_issues.append({
@@ -820,7 +817,7 @@ def tier1_check_node(state: dict) -> dict:
                 "suggestion": f"精简内容至{max_words}字以内，优先保留核心原理和代码示例",
             })
 
-        # Check 3: code block line count
+        # Check 2: code block line count
         code_blocks = re.findall(r"```[\s\S]*?```", ch_content)
         for j, block in enumerate(code_blocks):
             lines = block.split("\n")
