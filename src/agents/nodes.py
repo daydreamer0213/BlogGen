@@ -1273,18 +1273,14 @@ def assemble_reviews_node(state: dict) -> dict:
         return {"_error": "No reviews to assemble", "stage": "review_error"}
 
     sorted_reviews = sorted(per_chapter, key=lambda d: d.get("chapter_index", 0))
-    all_accepted = True
     merged_issues = []
     chapter_contents = {}  # For Writer fix-mode: {chapter_index: original_content}
     total_words = 0
 
     for entry in sorted_reviews:
         review = entry.get("review", {})
-        if review.get("action") != "accept":
-            all_accepted = False
         merged_issues.extend(review.get("issues", []))
         total_words += review.get("word_count", 0)
-        # Pass original chapter content for Writer's precise edit mode
         ci = entry.get("chapter_index")
         cc = entry.get("chapter_content")
         if ci is not None and cc is not None:
@@ -1292,26 +1288,30 @@ def assemble_reviews_node(state: dict) -> dict:
 
     # Merge structure review
     if structure_review:
-        if structure_review.get("action") != "accept":
-            all_accepted = False
         merged_issues.extend(structure_review.get("issues", []))
 
+    # Decision: reject ONLY on critical issues. Minor issues are noted but don't block.
+    critical_issues = [i for i in merged_issues if i.get("severity") == "critical"]
+    has_critical = len(critical_issues) > 0
+
     chapter_status = "、".join(
-        f"第{entry['chapter_index']+1}章{'✓' if entry.get('review',{}).get('action')=='accept' else '✗'}"
+        f"第{entry['chapter_index']+1}章{'✓' if not any(i.get('severity')=='critical' for i in entry.get('review',{}).get('issues',[])) else '✗'}"
         for entry in sorted_reviews
     )
-    structure_status = "结构✓" if structure_review.get("action", "accept") == "accept" else "结构✗"
+    structure_status = "结构✓" if not any(i.get('severity')=='critical' for i in structure_review.get('issues',[])) else "结构✗"
     overall = f"{structure_status} | {chapter_status}"
+    if not has_critical and merged_issues:
+        overall += f" | {len(merged_issues)}个minor问题(不阻断)"
 
     merged = {
-        "action": "accept" if all_accepted else "reject",
+        "action": "accept" if not has_critical else "reject",
         "word_count": total_words if total_words > 0 else len(state.get("assembled_draft", "")),
         "overall_assessment": overall,
         "issues": merged_issues,
         "chapter_contents": chapter_contents,
     }
 
-    if all_accepted:
+    if not has_critical:
         return {
             "review_result": merged,
             "review_feedback": {},

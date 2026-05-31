@@ -212,7 +212,7 @@ class TestAssembleReviews:
                 {"chapter_index": 0, "review": {"action": "accept", "word_count": 500, "issues": []}},
                 {"chapter_index": 1, "review": {
                     "action": "reject", "word_count": 300,
-                    "issues": [{"description": "内容缺失"}],
+                    "issues": [{"description": "内容缺失", "severity": "critical"}],
                 }},
             ],
             "structure_review": {"action": "accept", "issues": []},
@@ -231,7 +231,7 @@ class TestAssembleReviews:
             ],
             "structure_review": {
                 "action": "reject",
-                "issues": [{"description": "章节顺序不合理"}],
+                "issues": [{"description": "章节顺序不合理", "severity": "critical"}],
             },
             "assembled_draft": "content",
         }
