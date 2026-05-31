@@ -1,8 +1,9 @@
 """Session manager: Streamlit ↔ LangGraph bridge.
 
 One BlogGenSession per browser tab (stored in st.session_state).
-Uses MemorySaver for checkpointing — state persists within a browser tab lifetime
-but is lost on page refresh. Thread ID is a UUID generated at session creation.
+Uses SqliteSaver for persistent checkpointing — state survives
+Streamlit restarts and browser crashes. Thread ID is a UUID
+generated at session creation.
 
 Key contract:
   - create() → init or resume a session with a thread_id

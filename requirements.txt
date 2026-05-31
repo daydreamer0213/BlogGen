@@ -2,6 +2,7 @@
 langchain>=0.3.0
 langchain-openai>=0.2.0
 langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=3.0.0
 
 # RAG
 sentence-transformers>=3.0.0

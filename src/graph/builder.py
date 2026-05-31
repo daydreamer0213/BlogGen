@@ -4,9 +4,10 @@ Uses Send() from conditional edges for fan-out (LangGraph 1.x pattern).
 """
 from typing import Literal
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Send
 
+from src.config import SQLITE_PATH
 from src.graph.state import BlogGenState
 from src.agents.nodes import (
     needs_alignment_node,
@@ -218,7 +219,10 @@ def build_graph() -> StateGraph:
 
 
 def compile_graph(interrupt_after: list[str] | None = None):
+    import sqlite3
+    conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
     return build_graph().compile(
-        checkpointer=MemorySaver(),
+        checkpointer=checkpointer,
         interrupt_after=interrupt_after or [],
     )
