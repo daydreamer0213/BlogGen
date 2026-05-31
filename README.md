@@ -55,7 +55,7 @@ streamlit run main.py
 - **三级质量门**：Tier1 代码级（免费）→ Tier2 逐章审查 → Tier3 结构审查，最多重试 2 次
 - **多篇博客**：知识树自动拆分为多篇博客，依次生成
 - **RAG 增强**：ChromaDB 向量库 + BGE 中文 Embedding + BM25 混合检索
-- **读者分层**：根据初学者/中级/进阶自动调整深度、字数、代码比例
+- **读者分层**：根据水平自动调整深度和字数（初学 1800 字/章、中级 2000 字/章、进阶 2000 字/章）
 - **监控面板**：实时 Token 用量、节点耗时、日志查看
 - **离线优先**：RAG 和 Web 搜索均可降级，核心管线不依赖外部服务
 
@@ -82,7 +82,7 @@ BlogGen/
 ├── docs/
 │   └── design.md        # 设计文档：架构决策、Agent 设计、权衡分析
 ├── tests/               # 300 个测试（全部通过，约 3 秒）
-├── data/                # ChromaDB 向量库 + 日志（不入 git）
+├── data/                # ChromaDB + SQLite 检查点(持久化) + 日志（不入 git）
 └── outputs/             # 生成的博客（不入 git）
 ```
 
@@ -94,7 +94,7 @@ BlogGen/
 - **RAG**：ChromaDB + BAAI/bge-large-zh-v1.5 + BM25 + RRF 融合
 - **数据校验**：Pydantic v2（field_validator + model_validator）
 - **监控**：LangChain BaseCallbackHandler → JSONL 日志
-- **状态管理**：当前用 MemorySaver，后续计划迁移到 SqliteSaver
+- **状态管理**：SqliteSaver 持久化到 SQLite（Streamlit 重启不丢进度）
 
 ## 运行测试
 

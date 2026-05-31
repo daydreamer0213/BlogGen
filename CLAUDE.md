@@ -22,7 +22,9 @@ BlogGen/
 │   ├── rag/             # ChromaDB vector store with BGE embeddings + BM25
 │   └── ui/components.py # Streamlit UI components
 ├── tests/               # 300 tests (schemas, routing, nodes, tools, e2e, regression)
-├── data/                # ChromaDB persistence + SQLite checkpoints + logs
+├── docs/
+│   └── design.md        # Design doc: architecture decisions, agent pipeline, tradeoffs
+├── data/                # ChromaDB + SQLite checkpoints (持久化) + logs
 └── outputs/             # Generated blog posts (markdown + summary JSON)
 ```
 
@@ -44,6 +46,7 @@ pytest tests/ -m "not integration" -v
 
 ## Key conventions
 
+- **State persistence:** SqliteSaver 持久化到 data/checkpoints.db（Streamlit 重启不丢进度）
 - **State management:** LangGraph TypedDict with `add` reducer for fan-out lists (per_chapter_drafts, per_chapter_reviews)
 - **Fan-out pattern:** `Send("write_chapter", ...)` and `Send("review_chapter", ...)` from conditional edges
 - **HITL checkpoints:** Graph interrupts after needs_alignment, knowledge_tree, chapter_planner, review_batch
@@ -51,6 +54,8 @@ pytest tests/ -m "not integration" -v
 - **Tool calling:** `_run_with_tools()` in nodes.py with per-agent limits (max calls, rounds, timeout)
 - **JSON extraction:** LLM outputs JSON in markdown fences → `safe_extract_json()` with regex fallback
 - **Config:** All env vars validated at import time via `_require()`, placeholder detection
+- **Word budget:** beginner=1800字/chapter, intermediate=2000字/chapter. 每章聚焦2-3个核心知识点
+- **Tier1 retry:** 纯字数驳回不传原文（防 prompt 膨胀），内容问题才带原文定位
 
 ## Workflow preferences (superpowers)
 
@@ -59,6 +64,7 @@ pytest tests/ -m "not integration" -v
 - Use **systematic-debugging** before proposing fixes for bugs
 - Use **writing-plans** for multi-step tasks
 - Tests must be passing (`pytest tests/`) before claiming work is complete
+- **每次修改后更新 CLAUDE.md / README.md / docs/design.md**，保持文档与代码同步
 
 ---
 
