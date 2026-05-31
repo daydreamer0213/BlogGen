@@ -40,7 +40,7 @@ SQLITE_PATH = os.getenv("SQLITE_PATH", str(Path(__file__).parent.parent / "data"
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", str(Path(__file__).parent.parent / "outputs"))
 
 # Constraints
-MAX_REVIEW_RETRIES = 2       # Max times Writer can be called back for fixes
+MAX_REVIEW_RETRIES = 1       # Max retries: 1 (Pro 遵从度好，1次足够)
 RECENCY_CUTOFF_YEARS = 1
 
 # Tool calling limits (per agent) — conservative, let pipeline complete first
