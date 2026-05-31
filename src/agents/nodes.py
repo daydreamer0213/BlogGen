@@ -684,26 +684,49 @@ def writer_single_chapter_node(state: dict) -> dict:
                 f"其他段落逐字保留原文。输出完整章节。"
             )
     else:
-        # Build full chapter outline so Writer knows where its chapter fits
+        # Build chapter outline: show position without revealing other chapters' topics
         all_chapters = state.get("chapter_plan", {}).get("chapters", [])
-        outline_lines = []
+        other_topics = []
         for j, och in enumerate(all_chapters):
-            och_title = och.get("title", f"Ch{j+1}")
+            if j != chapter_idx:
+                for kp in och.get("key_points", []):
+                    other_topics.append(kp)
+
+        outline_lines = [f"这篇博客共 {len(all_chapters)} 章，你是第 {chapter_idx + 1} 章。"]
+        preview = []
+        for j, och in enumerate(all_chapters):
             if j == chapter_idx:
-                outline_lines.append(f"  ▶ 第{j+1}章：{och_title} ← 你负责写这一章")
-            else:
-                outline_lines.append(f"    第{j+1}章：{och_title}")
-        outline = "\n".join(outline_lines)
+                preview.append(f"  → 第{j+1}章：{och['title']}（本章）")
+            elif j == chapter_idx - 1:
+                preview.append(f"    第{j+1}章：{och['title']}（前一章）")
+            elif j == chapter_idx + 1:
+                preview.append(f"    第{j+1}章：{och['title']}（后一章）")
+            # Don't show distant chapters to avoid confusion
+        outline = "\n".join(outline_lines + preview)
+
+        guardrail = ""
+        if other_topics:
+            # Limit to 6 other topics to keep prompt concise
+            sample = other_topics[:6]
+            guardrail = (
+                f"\n## 禁止越界\n"
+                f"以下知识点属于其他章节，本章不要讨论，不要展开：\n"
+                + "\n".join(f"- {t}" for t in sample)
+                + ("\n（等共{}个知识点）".format(len(other_topics)) if len(other_topics) > 6 else "")
+                + "\n"
+            )
 
         user_prompt = (
             f"{word_budget}\n\n"
-            f"## 全文大纲（共{len(all_chapters)}章）\n{outline}\n\n"
-            f"## 你的章节：{chapter_title}\n"
+            f"## 全文结构\n{outline}\n"
+            f"{guardrail}"
+            f"\n## 你的章节：{chapter_title}\n"
+            f"章节标题必须用 ## {chapter_title}，不要自己改标题。\n"
             f"## 需要覆盖的知识点\n" + "\n".join(f"- {kp}" for kp in key_points) + "\n\n"
             f"## 用户水平：{profile.get('level', 'beginner')}\n"
             f"## 风格偏好：{profile.get('style', 'balanced')}\n\n"
-            f"请只撰写这一章的内容（不要写其他章）。输出完整 Markdown 章节（## 标题开头），"
-            f"包含代码示例和运行结果。再次强调：{word_budget}"
+            f"只写本草内容，不要写整篇博客，不要跨章。"
+            f"输出完整 Markdown 章节，包含代码示例和运行结果。再次强调：{word_budget}"
         )
 
     draft = _run_with_tools(llm, level_prompt, user_prompt, tools, agent_name="writer_chapter")
