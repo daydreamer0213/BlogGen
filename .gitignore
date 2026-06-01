@@ -7,6 +7,3 @@ outputs/
 .streamlit/
 *.egg-info/
 dist/
-run_output.txt
-gstack/
-superpowers/
