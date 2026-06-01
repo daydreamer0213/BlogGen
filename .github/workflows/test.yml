@@ -1,0 +1,58 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_headless:
+        description: 'Run headless pipeline test'
+        type: boolean
+        default: false
+
+jobs:
+  fast-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run fast tests
+        env:
+          DEEPSEEK_API_KEY: sk-placeholder-for-ci
+          TAVILY_API_KEY: tvly-placeholder-for-ci
+        run: |
+          pytest tests/ -m "not integration" -v --tb=short
+
+  headless-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_headless
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run headless pipeline
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          python run_headless.py --timeout 600

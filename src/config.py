@@ -58,6 +58,7 @@ MAX_TOOL_CALLS_PER_AGENT = { # Max total tool calls per _run_with_tools
 }
 MAX_TOOL_SEC_PER_AGENT = {   # Cumulative timeout
     "knowledge_tree": 180,
+    "knowledge_tree_retry": 90,
     "split_posts": 60,           # Quick split plan, Flash
     "chapter_planner": 120,
     "writer": 300,
@@ -68,6 +69,7 @@ MAX_TOOL_SEC_PER_AGENT = {   # Cumulative timeout
 }
 MAX_TOOL_ROUNDS_PER_AGENT = {  # Max LLM invocations per _run_with_tools
     "knowledge_tree": 2,
+    "knowledge_tree_retry": 1,
     "split_posts": 1,            # Single LLM call to plan splits
     "chapter_planner": 2,
     "writer": 2,
