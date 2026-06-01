@@ -20,4 +20,7 @@ streamlit>=1.35.0
 # Config
 python-dotenv>=1.0.0
 
+# Test
+pytest>=8.0
+
 # Checkpointer — sqlite3 is stdlib, no install needed
