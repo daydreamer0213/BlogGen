@@ -846,7 +846,20 @@ def tier1_check_node(state: dict) -> dict:
             })
             continue
 
-        # Check: code block line count (30-line soft limit)
+        # Check: extremely short chapter (<50 chars = title shell, no real content)
+        ch_words = len(ch_content)
+        if ch_words < 50:
+            all_issues.append({
+                "chapter_index": i,
+                "paragraph": ch_title,
+                "type": "内容缺失",
+                "severity": "critical",
+                "description": f"章节「{ch_title}」仅{ch_words}字(低于50字下限)",
+                "suggestion": f"完整撰写本章内容，覆盖所有计划知识点",
+            })
+            continue
+
+        # Check: code block line count (minor, does NOT block)
         code_blocks = re.findall(r"```[\s\S]*?```", ch_content)
         for j, block in enumerate(code_blocks):
             lines = block.split("\n")
@@ -858,11 +871,11 @@ def tier1_check_node(state: dict) -> dict:
                     "type": "代码示例质量",
                     "severity": "minor",
                     "description": f"代码块{j+1}有{len(code_lines)}行，超过30行限制",
-                    "suggestion": "精简为简短伪代码（≤30行），移除import/异常处理/配置等样板，保留核心逻辑和运行结果",
+                    "suggestion": "精简为简短伪代码",
                 })
 
-    if all_issues:
-        # Collect chapter contents so Writer can do precise edits in fix-mode
+    critical_issues = [i for i in all_issues if i.get("severity") == "critical"]
+    if critical_issues:
         chapter_contents = {}
         for i, ch in enumerate(chapters):
             ch_content = draft_by_idx.get(i, "")
@@ -873,12 +886,12 @@ def tier1_check_node(state: dict) -> dict:
             "tier1_pass": False,
             "review_result": {
                 "action": "reject",
-                "overall_assessment": f"Tier1代码检查：{len(all_issues)}个问题",
+                "overall_assessment": f"Tier1检查：{len(critical_issues)}个致命问题",
                 "issues": all_issues,
             },
             "review_feedback": {
                 "action": "reject",
-                "issues": all_issues,
+                "issues": critical_issues,
                 "chapter_contents": chapter_contents,
             },
             "reject_level": "tier1",

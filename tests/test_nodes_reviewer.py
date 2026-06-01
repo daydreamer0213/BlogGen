@@ -379,7 +379,8 @@ class TestTier1CheckNode:
         result = tier1_check_node(state)
         assert result["tier1_pass"] is True
 
-    def test_code_block_too_long(self):
+    def test_code_block_too_long_is_minor(self):
+        """Code block >30 lines is minor, does not block (Reviewer handles)."""
         from src.agents.nodes import tier1_check_node
         base = "RAG概念是检索增强生成的核心思想，通过外部知识库检索来增强大模型的回答质量。" * 3
         content = base + "\n\n```python\n" + "\n".join(f"line_{i}" for i in range(35)) + "\n```"
@@ -395,8 +396,7 @@ class TestTier1CheckNode:
             "user_needs": {"level": "beginner"},
         }
         result = tier1_check_node(state)
-        assert result["tier1_pass"] is False
-        assert any("代码块" in i["description"] for i in result["review_feedback"]["issues"])
+        assert result["tier1_pass"] is True  # minor, does not block
 
     def test_empty_chapter(self):
         from src.agents.nodes import tier1_check_node
@@ -411,4 +411,21 @@ class TestTier1CheckNode:
         }
         result = tier1_check_node(state)
         assert result["tier1_pass"] is False
-        assert any("未找到" in i["description"] for i in result["review_feedback"]["issues"])
+
+    def test_very_short_chapter(self):
+        """<50 chars = title shell, should trigger retry."""
+        from src.agents.nodes import tier1_check_node
+        state = {
+            "chapter_plan": {
+                "chapters": [
+                    {"title": "Ch1", "key_points": ["RAG概念"]},
+                ],
+            },
+            "per_chapter_drafts": [
+                {"chapter_index": 0, "chapter_title": "Ch1", "draft_content": "这是很短的内容。"},
+            ],
+            "user_needs": {"level": "beginner"},
+        }
+        result = tier1_check_node(state)
+        assert result["tier1_pass"] is False
+        assert any("低于50字" in i["description"] for i in result["review_feedback"]["issues"])
