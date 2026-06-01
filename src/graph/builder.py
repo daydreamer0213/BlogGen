@@ -115,9 +115,6 @@ def route_after_review(state: BlogGenState) -> Literal["writer_batch", "next_pos
         posts = state.get("posts", [])
         if posts and current + 1 < len(posts):
             return "next_post"
-        kt_topics = state.get("knowledge_tree", {}).get("topics", [])
-        if current + 1 < len(kt_topics):
-            return "next_post"
         return END
 
     return END
@@ -147,6 +144,12 @@ def next_post_node(state: BlogGenState) -> dict:
             "final": "", "stage": "writer_batch",
         }
     return {"stage": "done"}
+
+
+def route_after_next_post(state: BlogGenState) -> Literal["writer_batch", END]:
+    if state.get("stage") == "writer_batch":
+        return "writer_batch"
+    return END
 
 
 # ============================================================
@@ -213,7 +216,10 @@ def build_graph() -> StateGraph:
         END: END,
     })
 
-    graph.add_edge("next_post", "writer_batch")
+    graph.add_conditional_edges("next_post", route_after_next_post, {
+        "writer_batch": "writer_batch",
+        END: END,
+    })
 
     return graph
 

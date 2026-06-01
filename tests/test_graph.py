@@ -43,12 +43,22 @@ class TestRoutingFunctions:
         assert result == END
 
     def test_route_after_review_accept_next(self):
+        """next_post only when posts array has remaining entries."""
         from src.graph.builder import route_after_review
         result = route_after_review({
             "stage": "review_pass", "current_post_index": 0,
-            "knowledge_tree": {"topics": ["A", "B"]},
+            "posts": [{"title": "Post1"}, {"title": "Post2"}],
         })
         assert result == "next_post"
+
+    def test_route_after_review_accept_last_post(self):
+        """On last post, route to END."""
+        from src.graph.builder import route_after_review
+        result = route_after_review({
+            "stage": "review_pass", "current_post_index": 0,
+            "posts": [{"title": "OnlyPost"}],
+        })
+        assert result == "__end__"
 
     def test_route_after_assembler(self):
         from src.graph.builder import route_after_assembler

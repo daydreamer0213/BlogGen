@@ -62,11 +62,12 @@ class TestRouting:
         assert route_after_tier1(state) == "writer_batch"
 
     def test_route_review_pass_first_post(self):
+        """next_post routes when posts array has more entries."""
         state = {
             **initial_state(),
             "stage": "review_pass",
             "current_post_index": 0,
-            "knowledge_tree": {"domain": "AI", "topics": ["RAG", "Agent", "Fine-tuning"]},
+            "posts": [{"title": "Post1"}, {"title": "Post2"}],
         }
         assert route_after_review(state) == "next_post"
 
@@ -74,8 +75,8 @@ class TestRouting:
         state = {
             **initial_state(),
             "stage": "review_pass",
-            "current_post_index": 2,
-            "knowledge_tree": {"domain": "AI", "topics": ["RAG", "Agent", "Fine-tuning"]},
+            "current_post_index": 0,
+            "posts": [{"title": "OnlyPost"}],
         }
         assert route_after_review(state) == "__end__"
 
