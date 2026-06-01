@@ -809,16 +809,14 @@ def writer_batch_node(state: dict) -> dict:
 # ================================================================
 
 def tier1_check_node(state: dict) -> dict:
-    """Mechanical rule check on all chapters. No LLM calls — pure Python.
+    """Minimal mechanical check — only flags clearly broken chapters.
 
     Checks per chapter:
-      1. Chapter presence: does the chapter content exist?
-      2. Word count: is the chapter within DEPTH_RULES limits?
-      3. Code block size: any code block >30 lines?
+      1. Empty chapter: content not found (critical)
+      2. Code block >30 lines (minor warning)
 
-    Topic coverage is NOT checked here — substring matching on key_points
-    produces too many false positives (Writer discusses the topic using
-    different Chinese phrasing). The Reviewer (Pro) handles coverage.
+    Word count (min/max) is NOT checked — Planner may assign few points to
+    some chapters, and Reviewer handles word budget as minor feedback.
 
     Returns {tier1_pass: bool, tier1_issues: list}.
     If pass → routes to review_batch.
@@ -827,9 +825,6 @@ def tier1_check_node(state: dict) -> dict:
     import re
     chapter_plan = state.get("chapter_plan", {})
     chapters = chapter_plan.get("chapters", [])
-    profile = state.get("user_needs", {})
-    level = profile.get("level", "beginner")
-    max_words = DEPTH_RULES.get(level, DEPTH_RULES["beginner"]).get("max_words_per_chapter", 2000)
 
     # Read chapter content by index (not title — Writer may use different headings)
     per_drafts = state.get("per_chapter_drafts", [])
@@ -851,29 +846,7 @@ def tier1_check_node(state: dict) -> dict:
             })
             continue
 
-        # Check 1: word count per chapter (both max and min)
-        ch_words = len(ch_content)
-        min_words = 300  # 300 chars minimum — prevents stub chapters
-        if ch_words < min_words:
-            all_issues.append({
-                "chapter_index": i,
-                "paragraph": ch_title,
-                "type": "内容缺失",
-                "severity": "critical",
-                "description": f"章节「{ch_title}」仅{ch_words}字，低于最低要求{min_words}字",
-                "suggestion": f"完整撰写本章内容，覆盖所有计划知识点，至少{min_words}字",
-            })
-        elif ch_words > max_words:
-            all_issues.append({
-                "chapter_index": i,
-                "paragraph": ch_title,
-                "type": "字数控制",
-                "severity": "minor",
-                "description": f"章节「{ch_title}」{ch_words}字，超过上限{max_words}字",
-                "suggestion": f"精简内容至{max_words}字以内，优先保留核心原理和代码示例",
-            })
-
-        # Check 2: code block line count
+        # Check: code block line count (30-line soft limit)
         code_blocks = re.findall(r"```[\s\S]*?```", ch_content)
         for j, block in enumerate(code_blocks):
             lines = block.split("\n")
