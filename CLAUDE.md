@@ -54,11 +54,14 @@ pytest tests/ -m "not integration" -v
 - **Tool calling:** `_run_with_tools()` in nodes.py with per-agent limits (max calls, rounds, timeout)
 - **JSON extraction:** LLM outputs JSON in markdown fences → `safe_extract_json()` with regex fallback
 - **Config:** All env vars validated at import time via `_require()`, placeholder detection
-- **Word budget:** beginner=1800字/chapter, intermediate=2000字/chapter. 每章聚焦2-3个核心知识点
-- **Chapter limit:** 章节数有硬上限（beginner≤6, intermediate≤8, advanced≤10），Planner 需舍弃非核心知识点
-- **Tier1 retry:** 纯字数驳回不传原文（防 prompt 膨胀），内容问题才带原文定位
-- **Review retry:** 重试时复用上次结构审查结果，只重新逐章审查
+- **Word budget:** beginner=2400字/chapter, intermediate=2800字/chapter, advanced=3200字/chapter. 每章3个知识点,每个约800-1000字
+- **Chapter limit:** 章节数有硬上限（beginner≤5, intermediate≤6, advanced≤7），Planner 需舍弃非核心知识点
+- **KnowledgeTree:** 每个知识点必须是单一概念,禁止用"与""及"合并多个话题. 粒度以"一段200-300字能讲清"为准
+- **Tier1 check:** 只拦截空章和超短章(<50字), 代码块>30行仅提示不阻断. 字数偏差由Reviewer负责
+- **Tier1 retry:** 只重试有问题的章节(增量), 纯字数驳回不传原文
+- **Review:** minor不阻断, 只有critical才触发Writer重试. 重试时复用上次结构审查结果
 - **KnowledgeTree:** 首次解析到知识点即跳过格式重试（有效内容优先）
+- **Chapter lookup:** Tier1/Reviewer按chapter_index定位章节, 不依赖标题匹配
 
 ## Workflow preferences (superpowers)
 
